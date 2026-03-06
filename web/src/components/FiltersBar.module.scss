@@ -1,0 +1,68 @@
+.toolbar {
+  display: grid;
+  gap: 1rem;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+
+.chip {
+  padding: 0.68rem 0.95rem;
+  border-radius: 999px;
+  border: 1px solid rgba(101, 136, 222, 0.18);
+  background: rgba(11, 18, 35, 0.84);
+  color: #cfe0ff;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+
+.chip:hover {
+  transform: translateY(-1px);
+  border-color: rgba(119, 176, 255, 0.38);
+}
+
+.active {
+  background: linear-gradient(135deg, rgba(31, 109, 255, 0.3), rgba(69, 229, 255, 0.24));
+  border-color: rgba(108, 182, 255, 0.5);
+  color: #f8fbff;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.search {
+  flex: 1 1 280px;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.82rem 1rem;
+  border-radius: 16px;
+  border: 1px solid rgba(101, 136, 222, 0.18);
+  background: rgba(8, 13, 27, 0.84);
+}
+
+.search input {
+  flex: 1;
+  background: transparent;
+  border: 0;
+  color: #eef5ff;
+  font-size: 0.95rem;
+  outline: none;
+}
+
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: #bdd2ee;
+  font-weight: 600;
+}

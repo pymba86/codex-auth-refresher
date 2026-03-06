@@ -45,7 +45,7 @@ func TestRefreshFileUpdatesTokensInPlace(t *testing.T) {
 		AccessToken:  testJWT(time.Now().Add(24*time.Hour), "client-1"),
 		RefreshToken: "rt-new",
 		IDToken:      testJWT(time.Now().Add(24*time.Hour), ""),
-	}}, 6*time.Hour, "fallback-client")
+	}}, 6*time.Hour, 0, "fallback-client")
 	result, err := service.RefreshFile(context.Background(), path)
 	if err != nil {
 		t.Fatalf("RefreshFile() error = %v", err)
@@ -82,7 +82,7 @@ func TestRefreshFileRejectsResponseWithoutExpiry(t *testing.T) {
 	}
 	original, _ := os.ReadFile(path)
 
-	service := NewService(fakeTokenRefresher{response: &oauth.Response{AccessToken: "opaque-access-token", IDToken: "opaque-id-token"}}, 2*time.Hour, "fallback-client")
+	service := NewService(fakeTokenRefresher{response: &oauth.Response{AccessToken: "opaque-access-token", IDToken: "opaque-id-token"}}, 2*time.Hour, 0, "fallback-client")
 	_, err := service.RefreshFile(context.Background(), path)
 	if !errors.Is(err, ErrUnknownExpiry) {
 		t.Fatalf("RefreshFile() error = %v, want ErrUnknownExpiry", err)
@@ -102,7 +102,7 @@ func TestRefreshFileReturnsInvalidGrantState(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	service := NewService(fakeTokenRefresher{err: &oauth.Error{Code: "invalid_grant", Description: "refresh token already used"}}, 2*time.Hour, "fallback-client")
+	service := NewService(fakeTokenRefresher{err: &oauth.Error{Code: "invalid_grant", Description: "refresh token already used"}}, 2*time.Hour, 0, "fallback-client")
 	_, err := service.RefreshFile(context.Background(), path)
 	if err == nil {
 		t.Fatal("expected error")
@@ -122,4 +122,100 @@ func testJWT(exp time.Time, clientID string) string {
 	payload, _ := json.Marshal(payloadMap)
 	encodedPayload := base64.RawURLEncoding.EncodeToString(payload)
 	return header + "." + encodedPayload + ".sig"
+}
+
+func TestInspectFileRefreshesWhenMaxAgeReached(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 3, 6, 15, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "user.json")
+	lastRefresh := now.Add(-25 * time.Hour)
+	accessExpiry := now.Add(10 * 24 * time.Hour)
+	input := []byte(`{
+  "access_token": "` + testJWT(accessExpiry, "client-1") + `",
+  "refresh_token": "rt-old",
+  "expired": "` + accessExpiry.UTC().Format(time.RFC3339) + `",
+  "last_refresh": "` + lastRefresh.UTC().Format(time.RFC3339) + `"
+}`)
+	if err := os.WriteFile(path, input, 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	service := NewService(fakeTokenRefresher{}, 6*time.Hour, 24*time.Hour, "fallback-client")
+	service.now = func() time.Time { return now }
+
+	inspection, err := service.InspectFile(path)
+	if err != nil {
+		t.Fatalf("InspectFile() error = %v", err)
+	}
+	if !inspection.RefreshDue {
+		t.Fatal("expected RefreshDue=true when refresh-max-age is exceeded")
+	}
+	wantNext := lastRefresh.Add(24 * time.Hour)
+	if inspection.NextRefreshAt == nil || !inspection.NextRefreshAt.Equal(wantNext) {
+		t.Fatalf("NextRefreshAt = %v, want %v", inspection.NextRefreshAt, wantNext)
+	}
+}
+
+func TestInspectFileUsesEarlierOfExpiryAndMaxAge(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 3, 6, 15, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "user.json")
+	lastRefresh := now.Add(-2 * time.Hour)
+	accessExpiry := now.Add(72 * time.Hour)
+	input := []byte(`{
+  "access_token": "` + testJWT(accessExpiry, "client-1") + `",
+  "refresh_token": "rt-old",
+  "expired": "` + accessExpiry.UTC().Format(time.RFC3339) + `",
+  "last_refresh": "` + lastRefresh.UTC().Format(time.RFC3339) + `"
+}`)
+	if err := os.WriteFile(path, input, 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	service := NewService(fakeTokenRefresher{}, 6*time.Hour, 24*time.Hour, "fallback-client")
+	service.now = func() time.Time { return now }
+
+	inspection, err := service.InspectFile(path)
+	if err != nil {
+		t.Fatalf("InspectFile() error = %v", err)
+	}
+	if inspection.RefreshDue {
+		t.Fatal("expected RefreshDue=false while both schedules are still in the future")
+	}
+	wantNext := lastRefresh.Add(24 * time.Hour)
+	if inspection.NextRefreshAt == nil || !inspection.NextRefreshAt.Equal(wantNext) {
+		t.Fatalf("NextRefreshAt = %v, want %v", inspection.NextRefreshAt, wantNext)
+	}
+}
+
+func TestInspectFileRefreshesImmediatelyWithoutLastRefreshWhenMaxAgeEnabled(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 3, 6, 15, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "user.json")
+	accessExpiry := now.Add(10 * 24 * time.Hour)
+	input := []byte(`{
+  "access_token": "` + testJWT(accessExpiry, "client-1") + `",
+  "refresh_token": "rt-old",
+  "expired": "` + accessExpiry.UTC().Format(time.RFC3339) + `"
+}`)
+	if err := os.WriteFile(path, input, 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	service := NewService(fakeTokenRefresher{}, 6*time.Hour, 24*time.Hour, "fallback-client")
+	service.now = func() time.Time { return now }
+
+	inspection, err := service.InspectFile(path)
+	if err != nil {
+		t.Fatalf("InspectFile() error = %v", err)
+	}
+	if !inspection.RefreshDue {
+		t.Fatal("expected RefreshDue=true when refresh-max-age is enabled but last_refresh is missing")
+	}
+	if inspection.NextRefreshAt == nil || !inspection.NextRefreshAt.Equal(now) {
+		t.Fatalf("NextRefreshAt = %v, want %v", inspection.NextRefreshAt, now)
+	}
 }

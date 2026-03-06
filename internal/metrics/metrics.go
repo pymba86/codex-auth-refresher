@@ -7,6 +7,17 @@ import (
 	"time"
 )
 
+type Snapshot struct {
+	ScansTotal          uint64
+	RefreshAttempts     uint64
+	RefreshSuccessTotal uint64
+	RefreshFailureTotal uint64
+	TrackedFiles        int64
+	ReauthFiles         int64
+	InvalidJSONFiles    int64
+	LastScanAt          *time.Time
+}
+
 type Registry struct {
 	scansTotal          atomic.Uint64
 	refreshAttempts     atomic.Uint64
@@ -43,6 +54,24 @@ func (r *Registry) SetTrackedFiles(total, reauth, invalid int) {
 	r.trackedFiles.Store(int64(total))
 	r.reauthFiles.Store(int64(reauth))
 	r.invalidJSONFiles.Store(int64(invalid))
+}
+
+func (r *Registry) Snapshot() Snapshot {
+	var lastScanAt *time.Time
+	if unix := r.lastScanUnix.Load(); unix > 0 {
+		value := time.Unix(unix, 0).UTC()
+		lastScanAt = &value
+	}
+	return Snapshot{
+		ScansTotal:          r.scansTotal.Load(),
+		RefreshAttempts:     r.refreshAttempts.Load(),
+		RefreshSuccessTotal: r.refreshSuccessTotal.Load(),
+		RefreshFailureTotal: r.refreshFailureTotal.Load(),
+		TrackedFiles:        r.trackedFiles.Load(),
+		ReauthFiles:         r.reauthFiles.Load(),
+		InvalidJSONFiles:    r.invalidJSONFiles.Load(),
+		LastScanAt:          lastScanAt,
+	}
 }
 
 func (r *Registry) RenderPrometheus() string {

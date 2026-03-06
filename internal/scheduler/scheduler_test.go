@@ -76,7 +76,7 @@ func TestManagerRefreshesValidFilesAndKeepsInvalidJSON(t *testing.T) {
 		t.Fatalf("WriteFile(invalid) error = %v", err)
 	}
 
-	refreshService := refresher.NewService(fakeTokenRefresher{response: &oauth.Response{AccessToken: testJWT(time.Now().Add(24*time.Hour), "client-1")}}, 6*time.Hour, "fallback-client")
+	refreshService := refresher.NewService(fakeTokenRefresher{response: &oauth.Response{AccessToken: testJWT(time.Now().Add(24*time.Hour), "client-1")}}, 6*time.Hour, 0, "fallback-client")
 	manager := NewManager(dir, 50*time.Millisecond, 1, refreshService, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	manager.watchFactory = nil
 
@@ -110,7 +110,7 @@ func TestManagerAppliesBackoffOnTooManyRequests(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	refreshService := refresher.NewService(fakeTokenRefresher{err: &oauth.Error{StatusCode: 429, Code: "rate_limited", Description: "too many requests", Retryable: true}}, 6*time.Hour, "fallback-client")
+	refreshService := refresher.NewService(fakeTokenRefresher{err: &oauth.Error{StatusCode: 429, Code: "rate_limited", Description: "too many requests", Retryable: true}}, 6*time.Hour, 0, "fallback-client")
 	manager := NewManager(dir, time.Hour, 1, refreshService, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -154,7 +154,7 @@ func TestManagerSerializesSameAccountRefreshes(t *testing.T) {
 	}
 
 	blocking := &blockingTokenRefresher{response: &oauth.Response{AccessToken: testJWT(time.Now().Add(24*time.Hour), "client-1")}, release: make(chan struct{})}
-	refreshService := refresher.NewService(blocking, 6*time.Hour, "fallback-client")
+	refreshService := refresher.NewService(blocking, 6*time.Hour, 0, "fallback-client")
 	manager := NewManager(dir, time.Hour, 2, refreshService, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	ctx, cancel := context.WithCancel(context.Background())

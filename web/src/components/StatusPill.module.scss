@@ -1,0 +1,49 @@
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+}
+
+.ok {
+  color: #8ff8c0;
+  background: rgba(33, 186, 117, 0.14);
+  border-color: rgba(69, 243, 155, 0.28);
+}
+
+.degraded {
+  color: #ffd67a;
+  background: rgba(255, 184, 0, 0.14);
+  border-color: rgba(255, 208, 76, 0.28);
+}
+
+.reauth_required {
+  color: #ff96a7;
+  background: rgba(232, 68, 112, 0.16);
+  border-color: rgba(255, 122, 154, 0.32);
+}
+
+.invalid_json {
+  color: #dcb5ff;
+  background: rgba(148, 93, 255, 0.16);
+  border-color: rgba(176, 127, 255, 0.32);
+}
+
+.default {
+  color: #d7e6ff;
+  background: rgba(103, 145, 255, 0.16);
+  border-color: rgba(103, 145, 255, 0.25);
+}
+
+.dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 12px currentColor;
+}

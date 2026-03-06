@@ -1,0 +1,61 @@
+x-openai-extra-hosts: &openai_extra_hosts
+  - "chatgpt.com:45.155.204.190"
+  - "ab.chatgpt.com:45.155.204.190"
+  - "auth.openai.com:45.155.204.190"
+  - "auth0.openai.com:45.155.204.190"
+  - "platform.openai.com:45.155.204.190"
+  - "cdn.oaistatic.com:45.155.204.190"
+  - "files.oaiusercontent.com:45.155.204.190"
+  - "cdn.auth0.com:45.155.204.190"
+  - "tcr9i.chat.openai.com:45.155.204.190"
+  - "webrtc.chatgpt.com:45.155.204.190"
+  - "android.chat.openai.com:45.155.204.190"
+  - "api.openai.com:45.155.204.190"
+  - "operator.chatgpt.com:45.155.204.190"
+  - "sora.chatgpt.com:45.155.204.190"
+  - "sora.com:45.155.204.190"
+  - "videos.openai.com:45.155.204.190"
+  - "ios.chat.openai.com:45.155.204.190"
+
+services:
+  cli-proxy-api:
+    image: eceasy/cli-proxy-api:latest
+    container_name: cli-proxy-api
+    restart: unless-stopped
+    networks:
+      web:
+        ipv4_address: 10.0.1.13
+    volumes:
+      - ./config.yaml:/CLIProxyAPI/config.yaml
+      - ./auth:/root/.cli-proxy-api
+    extra_hosts: *openai_extra_hosts
+
+  codex-auth-refresher:
+    image: ghcr.io/pymba86/codex-auth-refresher:latest
+    container_name: codex-auth-refresher
+    pull_policy: always
+    restart: unless-stopped
+    user: "0:0"
+    networks:
+      web:
+        ipv4_address: 10.0.1.14
+    environment:
+      CODEX_AUTH_DIR: /data/auth
+      CODEX_LISTEN_ADDR: :8080
+      CODEX_REFRESH_BEFORE: 6h
+      CODEX_REFRESH_MAX_AGE: 20h
+      CODEX_SCAN_INTERVAL: 5m
+      CODEX_MAX_PARALLEL: 1
+      CODEX_HTTP_TIMEOUT: 30s
+      CODEX_LOG_FORMAT: json
+      CODEX_STATUS_ENABLE: "true"
+      CODEX_WEB_ENABLE: "true"
+    volumes:
+      - ./auth:/data/auth
+    ports:
+      - "127.0.0.1:18081:8080"
+    extra_hosts: *openai_extra_hosts
+
+networks:
+  web:
+    external: true

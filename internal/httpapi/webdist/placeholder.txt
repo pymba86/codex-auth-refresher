@@ -1,0 +1,2 @@
+This directory is used for the embedded React dashboard build output.
+Run `npm run build --prefix web` to generate `index.html` here.

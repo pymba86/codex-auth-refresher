@@ -17,6 +17,12 @@ coverage/
 *.out
 *.test
 /codex-auth-refresher
+internal/httpapi/webdist/index.html
+internal/httpapi/webdist/assets/
+
+# Frontend local deps
+web/node_modules/
+web/.npmrc
 
 # Local planning / scratch files
 codex.md

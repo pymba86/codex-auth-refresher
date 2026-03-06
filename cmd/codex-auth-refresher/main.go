@@ -46,10 +46,17 @@ func run() error {
 
 	metricsRegistry := metrics.New()
 	oauthClient := oauth.NewClient(cfg.TokenEndpoint, httpClient)
-	refreshService := refresher.NewService(oauthClient, cfg.RefreshBefore, cfg.ClientID)
+	refreshService := refresher.NewService(oauthClient, cfg.RefreshBefore, cfg.RefreshMaxAge, cfg.ClientID)
 	manager := scheduler.NewManager(cfg.AuthDir, cfg.ScanInterval, cfg.MaxParallel, refreshService, metricsRegistry, logger)
 
-	handler := httpapi.NewHandler(manager, metricsRegistry, cfg.AuthDir, cfg.StatusEnable)
+	handler := httpapi.NewHandler(manager, metricsRegistry, httpapi.Options{
+		StatusEnabled: cfg.StatusEnable,
+		WebEnabled:    cfg.WebEnable,
+		RefreshBefore: cfg.RefreshBefore.String(),
+		RefreshMaxAge: formatRefreshMaxAge(cfg.RefreshMaxAge),
+		ScanInterval:  cfg.ScanInterval.String(),
+		MaxParallel:   cfg.MaxParallel,
+	})
 	server := &http.Server{
 		Addr:              cfg.ListenAddr,
 		Handler:           handler,
@@ -58,7 +65,7 @@ func run() error {
 
 	errCh := make(chan error, 2)
 	go func() {
-		logger.Info("starting refresh manager", "auth_dir", cfg.AuthDir, "refresh_before", cfg.RefreshBefore.String(), "scan_interval", cfg.ScanInterval.String())
+		logger.Info("starting refresh manager", "auth_dir", cfg.AuthDir, "refresh_before", cfg.RefreshBefore.String(), "refresh_max_age", formatRefreshMaxAge(cfg.RefreshMaxAge), "scan_interval", cfg.ScanInterval.String(), "web_enable", cfg.WebEnable)
 		errCh <- manager.Run(ctx)
 	}()
 	go func() {
@@ -136,4 +143,11 @@ func (r roundTripperWithUA) RoundTrip(req *http.Request) (*http.Response, error)
 		io.Closer
 	}{Reader: resp.Body, Closer: resp.Body}
 	return resp, nil
+}
+
+func formatRefreshMaxAge(value time.Duration) string {
+	if value <= 0 {
+		return "disabled"
+	}
+	return value.String()
 }

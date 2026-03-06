@@ -55,12 +55,19 @@ type Result struct {
 type Service struct {
 	client          TokenRefresher
 	refreshBefore   time.Duration
+	refreshMaxAge   time.Duration
 	defaultClientID string
 	now             func() time.Time
 }
 
-func NewService(client TokenRefresher, refreshBefore time.Duration, defaultClientID string) *Service {
-	return &Service{client: client, refreshBefore: refreshBefore, defaultClientID: defaultClientID, now: func() time.Time { return time.Now().UTC() }}
+func NewService(client TokenRefresher, refreshBefore, refreshMaxAge time.Duration, defaultClientID string) *Service {
+	return &Service{
+		client:          client,
+		refreshBefore:   refreshBefore,
+		refreshMaxAge:   refreshMaxAge,
+		defaultClientID: defaultClientID,
+		now:             func() time.Time { return time.Now().UTC() },
+	}
 }
 
 func (s *Service) InspectFile(path string) (Inspection, error) {
@@ -125,8 +132,7 @@ func (s *Service) RefreshFile(ctx context.Context, path string) (Result, error) 
 	updatedInspection := s.inspectDocument(doc)
 	updatedInspection.LastRefreshAt = timePointer(lastRefresh)
 	updatedInspection.ExpiresAt = timePointer(expiresAt)
-	nextRefresh := expiresAt.Add(-s.refreshBefore)
-	updatedInspection.NextRefreshAt = timePointer(nextRefresh)
+	updatedInspection.NextRefreshAt, _ = s.computeSchedule(updatedInspection.ExpiresAt, updatedInspection.LastRefreshAt, lastRefresh)
 	updatedInspection.RefreshDue = false
 	return Result{Inspection: updatedInspection, Refreshed: true}, nil
 }
@@ -156,12 +162,8 @@ func (s *Service) inspectDocument(doc *authfile.Document) Inspection {
 	}
 	if expiresAt, ok := resolveDocumentExpiry(doc); ok {
 		inspection.ExpiresAt = timePointer(expiresAt)
-		nextRefreshAt := expiresAt.Add(-s.refreshBefore)
-		inspection.NextRefreshAt = timePointer(nextRefreshAt)
-		inspection.RefreshDue = !expiresAt.After(now) || !nextRefreshAt.After(now)
-	} else {
-		inspection.RefreshDue = true
 	}
+	inspection.NextRefreshAt, inspection.RefreshDue = s.computeSchedule(inspection.ExpiresAt, inspection.LastRefreshAt, now)
 	return inspection
 }
 
@@ -189,6 +191,45 @@ func (s *Service) resolveExpiry(accessToken, idToken string, expiresIn int64) (t
 		return s.now().UTC().Add(time.Duration(expiresIn) * time.Second), true, nil
 	}
 	return time.Time{}, false, nil
+}
+
+func (s *Service) computeSchedule(expiresAt, lastRefreshAt *time.Time, now time.Time) (*time.Time, bool) {
+	candidates := make([]time.Time, 0, 2)
+	refreshDue := false
+
+	if expiresAt != nil {
+		expiry := expiresAt.UTC()
+		nextFromExpiry := expiry.Add(-s.refreshBefore)
+		candidates = append(candidates, nextFromExpiry)
+		if !expiry.After(now) || !nextFromExpiry.After(now) {
+			refreshDue = true
+		}
+	}
+
+	if s.refreshMaxAge > 0 {
+		if lastRefreshAt != nil {
+			nextFromAge := lastRefreshAt.UTC().Add(s.refreshMaxAge)
+			candidates = append(candidates, nextFromAge)
+			if !nextFromAge.After(now) {
+				refreshDue = true
+			}
+		} else {
+			candidates = append(candidates, now.UTC())
+			refreshDue = true
+		}
+	}
+
+	if len(candidates) == 0 {
+		return nil, true
+	}
+
+	nextRefreshAt := candidates[0]
+	for _, candidate := range candidates[1:] {
+		if candidate.Before(nextRefreshAt) {
+			nextRefreshAt = candidate
+		}
+	}
+	return timePointer(nextRefreshAt), refreshDue
 }
 
 func timePointer(value time.Time) *time.Time {

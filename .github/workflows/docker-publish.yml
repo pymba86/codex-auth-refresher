@@ -23,6 +23,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix web
+
+      - name: Lint frontend
+        run: npm run lint --prefix web
+
+      - name: Typecheck frontend
+        run: npm run typecheck --prefix web
+
+      - name: Build frontend
+        run: npm run build --prefix web
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -32,7 +51,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          files=$(find . -name '*.go' -type f)
+          files=$(find . -path './web/node_modules' -prune -o -name '*.go' -type f -print)
           unformatted=$(gofmt -l $files)
           if [ -n "$unformatted" ]; then
             echo "The following files need gofmt:"

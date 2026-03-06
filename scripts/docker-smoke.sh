@@ -21,10 +21,14 @@ CID=$(docker run -d \
   -p "$PORT":8080 \
   -v "$AUTH_DIR:/data/auth" \
   -e CODEX_AUTH_DIR=/data/auth \
+  -e CODEX_WEB_ENABLE=true \
   "$IMAGE_NAME")
 
 for _ in $(seq 1 30); do
-  if curl -fsS "http://127.0.0.1:${PORT}/healthz" >/dev/null && curl -fsS "http://127.0.0.1:${PORT}/readyz" >/dev/null; then
+  if curl -fsS "http://127.0.0.1:${PORT}/healthz" >/dev/null \
+    && curl -fsS "http://127.0.0.1:${PORT}/readyz" >/dev/null \
+    && curl -fsS "http://127.0.0.1:${PORT}/" >/dev/null \
+    && curl -fsS "http://127.0.0.1:${PORT}/v1/dashboard" >/dev/null; then
     echo "docker smoke test passed"
     exit 0
   fi

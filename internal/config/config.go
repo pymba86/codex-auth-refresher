@@ -15,6 +15,7 @@ type Config struct {
 	AuthDir       string
 	ListenAddr    string
 	RefreshBefore time.Duration
+	RefreshMaxAge time.Duration
 	ScanInterval  time.Duration
 	MaxParallel   int
 	HTTPTimeout   time.Duration
@@ -23,6 +24,7 @@ type Config struct {
 	CAFile        string
 	LogFormat     string
 	StatusEnable  bool
+	WebEnable     bool
 }
 
 func Parse(args []string, env []string) (Config, error) {
@@ -38,6 +40,7 @@ func Parse(args []string, env []string) (Config, error) {
 		AuthDir:       envMap["CODEX_AUTH_DIR"],
 		ListenAddr:    getOrDefault(envMap["CODEX_LISTEN_ADDR"], ":8080"),
 		RefreshBefore: getDuration(envMap["CODEX_REFRESH_BEFORE"], 6*time.Hour),
+		RefreshMaxAge: getDuration(envMap["CODEX_REFRESH_MAX_AGE"], 0),
 		ScanInterval:  getDuration(envMap["CODEX_SCAN_INTERVAL"], time.Minute),
 		MaxParallel:   getInt(envMap["CODEX_MAX_PARALLEL"], 4),
 		HTTPTimeout:   getDuration(envMap["CODEX_HTTP_TIMEOUT"], 15*time.Second),
@@ -46,6 +49,7 @@ func Parse(args []string, env []string) (Config, error) {
 		CAFile:        envMap["CODEX_CA_FILE"],
 		LogFormat:     getOrDefault(envMap["CODEX_LOG_FORMAT"], "json"),
 		StatusEnable:  getBool(envMap["CODEX_STATUS_ENABLE"], true),
+		WebEnable:     getBool(envMap["CODEX_WEB_ENABLE"], false),
 	}
 
 	fs := flag.NewFlagSet("codex-auth-refresher", flag.ContinueOnError)
@@ -53,6 +57,7 @@ func Parse(args []string, env []string) (Config, error) {
 	fs.StringVar(&cfg.AuthDir, "auth-dir", cfg.AuthDir, "path to auth directory")
 	fs.StringVar(&cfg.ListenAddr, "listen-addr", cfg.ListenAddr, "HTTP listen address")
 	fs.DurationVar(&cfg.RefreshBefore, "refresh-before", cfg.RefreshBefore, "refresh threshold before token expiry")
+	fs.DurationVar(&cfg.RefreshMaxAge, "refresh-max-age", cfg.RefreshMaxAge, "force refresh when last successful refresh reaches this age; 0 disables the mode")
 	fs.DurationVar(&cfg.ScanInterval, "scan-interval", cfg.ScanInterval, "auth directory scan interval")
 	fs.IntVar(&cfg.MaxParallel, "max-parallel", cfg.MaxParallel, "maximum concurrent refresh operations")
 	fs.DurationVar(&cfg.HTTPTimeout, "http-timeout", cfg.HTTPTimeout, "HTTP client timeout")
@@ -61,6 +66,7 @@ func Parse(args []string, env []string) (Config, error) {
 	fs.StringVar(&cfg.CAFile, "ca-file", cfg.CAFile, "custom CA PEM file")
 	fs.StringVar(&cfg.LogFormat, "log-format", cfg.LogFormat, "log format: json or text")
 	fs.BoolVar(&cfg.StatusEnable, "status-enable", cfg.StatusEnable, "enable GET /v1/status")
+	fs.BoolVar(&cfg.WebEnable, "web-enable", cfg.WebEnable, "enable the web dashboard at GET /")
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
 	}
@@ -76,6 +82,9 @@ func (c Config) Validate() error {
 	}
 	if c.RefreshBefore <= 0 {
 		return errors.New("refresh-before must be positive")
+	}
+	if c.RefreshMaxAge < 0 {
+		return errors.New("refresh-max-age must be zero or positive")
 	}
 	if c.ScanInterval <= 0 {
 		return errors.New("scan-interval must be positive")

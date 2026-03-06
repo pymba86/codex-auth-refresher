@@ -16,6 +16,12 @@ dist/
 coverage/
 *.out
 *.test
+internal/httpapi/webdist/index.html
+internal/httpapi/webdist/assets/
+
+# Frontend
+web/node_modules/
+web/.npmrc
 
 # Editor / OS
 .DS_Store
@@ -25,3 +31,10 @@ coverage/
 # Local planning / scratch files
 codex.md
 glm.md
+
+# Cache
+.gocache/
+.gomodcache/
+ 
+# Local
+.npmrc

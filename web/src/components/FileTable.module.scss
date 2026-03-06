@@ -1,0 +1,99 @@
+.surface {
+  border-radius: 24px;
+  border: 1px solid rgba(104, 140, 255, 0.18);
+  background: linear-gradient(180deg, rgba(8, 15, 29, 0.98), rgba(5, 10, 21, 0.98));
+  overflow: hidden;
+  box-shadow: 0 24px 46px rgba(2, 6, 23, 0.32);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.2rem 1.35rem;
+  border-bottom: 1px solid rgba(100, 138, 214, 0.12);
+}
+
+.title {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #f8fbff;
+}
+
+.meta {
+  color: #8ea5c8;
+  font-size: 0.88rem;
+}
+
+.tableWrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  min-width: 980px;
+  border-collapse: collapse;
+}
+
+.table th,
+.table td {
+  padding: 0.95rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid rgba(92, 118, 170, 0.12);
+  vertical-align: top;
+}
+
+.table th {
+  color: #87a0c7;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.table td {
+  color: #dce8fb;
+  font-size: 0.92rem;
+}
+
+.primary {
+  font-weight: 700;
+  color: #f8fbff;
+}
+
+.subtle {
+  margin-top: 0.25rem;
+  color: #89a2c5;
+  font-size: 0.83rem;
+}
+
+.error {
+  max-width: 280px;
+  color: #ffb2c3;
+  white-space: normal;
+}
+
+.muted {
+  color: #7f93b4;
+}
+
+.disabled {
+  display: inline-flex;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(130, 150, 178, 0.14);
+  color: #c4d4eb;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.empty {
+  padding: 2.2rem;
+  color: #a8bdd7;
+}
+
+@media (max-width: 960px) {
+  .table {
+    min-width: 760px;
+  }
+}

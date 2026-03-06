@@ -8,8 +8,10 @@ services:
       CODEX_AUTH_DIR: /data/auth
       CODEX_LISTEN_ADDR: :8080
       CODEX_REFRESH_BEFORE: 6h
+      CODEX_REFRESH_MAX_AGE: 20h
       CODEX_SCAN_INTERVAL: 1m
       CODEX_MAX_PARALLEL: 4
+      CODEX_WEB_ENABLE: "true"
     volumes:
       - ./auth:/data/auth
     ports:
