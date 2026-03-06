@@ -1,5 +1,5 @@
-const relativeFormatter = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
-const absoluteFormatter = new Intl.DateTimeFormat('en', {
+const relativeFormatter = new Intl.RelativeTimeFormat('ru-RU', { numeric: 'auto' });
+const absoluteFormatter = new Intl.DateTimeFormat('ru-RU', {
   dateStyle: 'medium',
   timeStyle: 'short',
   timeZone: 'UTC',
@@ -41,11 +41,11 @@ export function formatDuration(totalSeconds: number): string {
 
   const parts: string[] = [];
   if (days > 0) {
-    parts.push(`${days}d`);
+    parts.push(`${days} д`);
   }
   if (hours > 0 || days > 0) {
-    parts.push(`${hours}h`);
+    parts.push(`${hours} ч`);
   }
-  parts.push(`${minutes}m`);
+  parts.push(`${minutes} мин`);
   return parts.join(' ');
 }

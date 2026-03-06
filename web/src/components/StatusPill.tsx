@@ -2,9 +2,9 @@ import styles from './StatusPill.module.scss';
 
 const LABELS: Record<string, string> = {
   ok: 'OK',
-  degraded: 'Degraded',
-  reauth_required: 'Reauth Required',
-  invalid_json: 'Invalid JSON',
+  degraded: 'Проблема',
+  reauth_required: 'Нужен вход',
+  invalid_json: 'Некорректный JSON',
 };
 
 export function StatusPill({ state }: { state: string }) {

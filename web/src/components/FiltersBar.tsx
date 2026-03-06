@@ -5,11 +5,11 @@ import styles from './FiltersBar.module.scss';
 export type FileFilter = 'all' | 'ok' | 'degraded' | 'reauth_required' | 'invalid_json';
 
 const FILTERS: Array<{ key: FileFilter; label: string }> = [
-  { key: 'all', label: 'All' },
+  { key: 'all', label: 'Все' },
   { key: 'ok', label: 'OK' },
-  { key: 'degraded', label: 'Degraded' },
-  { key: 'reauth_required', label: 'Reauth' },
-  { key: 'invalid_json', label: 'Invalid' },
+  { key: 'degraded', label: 'Проблемные' },
+  { key: 'reauth_required', label: 'Нужен вход' },
+  { key: 'invalid_json', label: 'Некорректные' },
 ];
 
 export function FiltersBar({
@@ -47,7 +47,7 @@ export function FiltersBar({
           <input
             value={search}
             onChange={(event) => onSearchChange(event.target.value)}
-            placeholder="Search file or account"
+            placeholder="Поиск по файлу или account_id"
           />
         </label>
         <label className={styles.checkbox}>
@@ -56,7 +56,7 @@ export function FiltersBar({
             checked={showDisabled}
             onChange={(event) => onShowDisabledChange(event.target.checked)}
           />
-          Show disabled files
+          Показывать отключённые файлы
         </label>
       </div>
     </div>

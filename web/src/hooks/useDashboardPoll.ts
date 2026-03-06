@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchDashboard } from '../api/dashboard';
 import type { DashboardResponse } from '../types';
 
-const POLL_INTERVAL_MS = 10_000;
+const POLL_INTERVAL_MS = 30_000;
 
 export function useDashboardPoll() {
   const [data, setData] = useState<DashboardResponse | null>(null);
@@ -11,18 +11,20 @@ export function useDashboardPoll() {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const hasLoadedRef = useRef(false);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (options?: { showLoader?: boolean }) => {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
 
-    if (!data) {
+    if (options?.showLoader || !hasLoadedRef.current) {
       setLoading(true);
     }
 
     try {
       const nextData = await fetchDashboard(controller.signal);
+      hasLoadedRef.current = true;
       setData(nextData);
       setError(null);
       setLastUpdatedAt(new Date());
@@ -37,16 +39,28 @@ export function useDashboardPoll() {
         setLoading(false);
       }
     }
-  }, [data]);
+  }, []);
 
   useEffect(() => {
-    void refresh();
+    void refresh({ showLoader: true });
+
     const timer = window.setInterval(() => {
-      void refresh();
+      if (document.visibilityState === 'visible') {
+        void refresh();
+      }
     }, POLL_INTERVAL_MS);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void refresh();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       abortRef.current?.abort();
     };
   }, [refresh]);

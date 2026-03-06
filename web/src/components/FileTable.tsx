@@ -9,28 +9,28 @@ export function FileTable({ files }: { files: DashboardFile[] }) {
     <section className={styles.surface}>
       <div className={styles.header}>
         <div>
-          <div className={styles.title}>Tracked auth files</div>
-          <div className={styles.meta}>Real-time refresh status for every Codex auth document.</div>
+          <div className={styles.title}>Отслеживаемые auth-файлы</div>
+          <div className={styles.meta}>Текущее состояние refresh для каждого Codex auth-документа.</div>
         </div>
-        <div className={styles.meta}>{files.length} visible entries</div>
+        <div className={styles.meta}>Видимых записей: {files.length}</div>
       </div>
       {files.length === 0 ? (
-        <div className={styles.empty}>No auth files found for the current filters.</div>
+        <div className={styles.empty}>По текущим фильтрам auth-файлы не найдены.</div>
       ) : (
         <div className={styles.tableWrap}>
           <table className={styles.table}>
             <thead>
               <tr>
-                <th>File</th>
-                <th>Account</th>
-                <th>Schema</th>
-                <th>State</th>
-                <th>Expires</th>
-                <th>Next refresh</th>
-                <th>Last refresh</th>
-                <th>Failures</th>
-                <th>Disabled</th>
-                <th>Error</th>
+                <th>Файл</th>
+                <th>Аккаунт</th>
+                <th>Схема</th>
+                <th>Состояние</th>
+                <th>Истекает</th>
+                <th>Следующий refresh</th>
+                <th>Последний refresh</th>
+                <th>Ошибки подряд</th>
+                <th>Отключён</th>
+                <th>Ошибка</th>
               </tr>
             </thead>
             <tbody>
@@ -64,7 +64,7 @@ export function FileTable({ files }: { files: DashboardFile[] }) {
                     <div className={styles.primary}>{file.consecutive_failures}</div>
                   </td>
                   <td>
-                    {file.disabled ? <span className={styles.disabled}>Disabled</span> : <span className={styles.muted}>No</span>}
+                    {file.disabled ? <span className={styles.disabled}>Да</span> : <span className={styles.muted}>Нет</span>}
                   </td>
                   <td>
                     <div className={styles.error}>{file.last_error ?? '—'}</div>

@@ -29,6 +29,26 @@ function readStoredBoolean(key: string, fallback: boolean) {
   return value === 'true';
 }
 
+function localizeError(error: string | null): string | null {
+  if (!error) {
+    return null;
+  }
+  if (error.startsWith('dashboard_request_failed:')) {
+    return `HTTP ${error.slice('dashboard_request_failed:'.length)}`;
+  }
+  if (error === 'unknown_dashboard_error') {
+    return 'неизвестная ошибка дашборда';
+  }
+  return error;
+}
+
+function localizeConfigValue(value: string): string {
+  if (value === 'disabled') {
+    return 'выключено';
+  }
+  return value;
+}
+
 export default function App() {
   const { data, error, isStale, loading, lastUpdatedAt, pollIntervalMs, refresh } = useDashboardPoll();
   const [filter, setFilter] = useState<FileFilter>(() => (window.localStorage.getItem(FILTER_KEY) as FileFilter) || 'all');
@@ -73,16 +93,16 @@ export default function App() {
   }, [data, filter, search, showDisabled]);
 
   const endpointItems = [
-    ['Dashboard', 'GET /'],
-    ['UI JSON', 'GET /v1/dashboard'],
-    ['Health', 'GET /healthz'],
-    ['Readiness', 'GET /readyz'],
-    ['Metrics', 'GET /metrics'],
-    ['Raw status', 'GET /v1/status'],
+    ['Дашборд', 'GET /'],
+    ['JSON для UI', 'GET /v1/dashboard'],
+    ['Проверка жизни', 'GET /healthz'],
+    ['Готовность', 'GET /readyz'],
+    ['Метрики', 'GET /metrics'],
+    ['Сырой статус', 'GET /v1/status'],
   ];
 
   const summaryContent = data ? <SummaryCards data={data} /> : null;
-  const errorMessage = error?.replace('dashboard_request_failed:', 'HTTP ');
+  const errorMessage = localizeError(error);
 
   return (
     <div className={styles.shell}>
@@ -93,30 +113,32 @@ export default function App() {
           </div>
           <div>
             <div className={styles.brandTitle}>codex-auth-refresher</div>
-            <div className={styles.brandSubtitle}>Status Dashboard</div>
+            <div className={styles.brandSubtitle}>Панель состояния</div>
           </div>
         </div>
 
         <nav className={styles.nav}>
-          <a href="#overview"><LayoutDashboard size={18} /> Overview</a>
-          <a href="#files"><Files size={18} /> Files</a>
-          <a href="#metrics"><Activity size={18} /> Metrics</a>
-          <a href="#endpoints"><Link2 size={18} /> Endpoints</a>
+          <a href="#overview"><LayoutDashboard size={18} /> Обзор</a>
+          <a href="#files"><Files size={18} /> Файлы</a>
+          <a href="#metrics"><Activity size={18} /> Метрики</a>
+          <a href="#endpoints"><Link2 size={18} /> Эндпоинты</a>
         </nav>
 
         {data && (
           <div className={styles.stack}>
             <div className={styles.sidebarCard}>
-              <div className={styles.sidebarLabel}>Runtime policy</div>
-              <div className={styles.sidebarValue}>{data.config.refresh_before} / {data.config.refresh_max_age}</div>
+              <div className={styles.sidebarLabel}>Политика обновления</div>
+              <div className={styles.sidebarValue}>
+                {data.config.refresh_before} / {localizeConfigValue(data.config.refresh_max_age)}
+              </div>
               <div className={styles.sidebarHint}>
-                Scan interval {data.config.scan_interval}, max parallel {data.config.max_parallel}.
+                Интервал сканирования {data.config.scan_interval}, параллелизм {data.config.max_parallel}.
               </div>
             </div>
             <div className={styles.sidebarCard}>
-              <div className={styles.sidebarLabel}>Service state</div>
+              <div className={styles.sidebarLabel}>Состояние сервиса</div>
               <div className={styles.sidebarValue}><StatusPill state={data.service.ready ? 'ok' : 'degraded'} /></div>
-              <div className={styles.sidebarHint}>Uptime {formatDuration(data.service.uptime_seconds)}.</div>
+              <div className={styles.sidebarHint}>Аптайм {formatDuration(data.service.uptime_seconds)}.</div>
             </div>
           </div>
         )}
@@ -125,35 +147,39 @@ export default function App() {
       <main className={styles.content}>
         <div className={styles.topbar}>
           <div>
-            <div className={styles.title}>Codex token fleet at a glance</div>
+            <div className={styles.title}>Состояние Codex-токенов в одном окне</div>
             <div className={styles.subtitle}>
-              A read-only operations dashboard for refresh health, file state, and upcoming token maintenance windows.
+              Панель только для чтения: видно здоровье refresh-цикла, состояние auth-файлов и ближайшие обновления.
             </div>
           </div>
           <div className={styles.topMeta}>
-            <div className={styles.metricPill}>Polling every {Math.round(pollIntervalMs / 1000)}s</div>
-            {lastUpdatedAt && <div className={styles.metricPill}>Updated {lastUpdatedAt.toLocaleTimeString()}</div>}
+            <div className={styles.metricPill}>Автообновление каждые {Math.round(pollIntervalMs / 1000)} с</div>
+            {lastUpdatedAt && <div className={styles.metricPill}>Обновлено {lastUpdatedAt.toLocaleTimeString('ru-RU')}</div>}
             <button type="button" className={styles.refreshButton} onClick={() => void refresh()} disabled={loading}>
-              <RefreshCw size={18} /> Refresh
+              <RefreshCw size={18} /> Обновить
             </button>
           </div>
         </div>
 
         {!data && loading && (
           <StatusBanner
-            title="Loading dashboard"
-            message="Fetching current refresh state, file inventory, and operational metrics."
+            title="Загрузка дашборда"
+            message="Получаю текущее состояние refresh-цикла, список файлов и операционные метрики."
           />
         )}
 
         {data && !data.service.ready && (
-          <StatusBanner title="Service is starting" message="The scheduler is still warming up. Data may be incomplete until readiness turns green." />
+          <StatusBanner title="Сервис запускается" message="Планировщик ещё прогревается. Пока readiness не станет зелёным, данные могут быть неполными." />
         )}
 
         {errorMessage && (
           <StatusBanner
-            title={isStale ? 'Showing last known data' : 'Dashboard fetch failed'}
-            message={isStale ? `Latest API request failed (${errorMessage}), but the last successful snapshot stays on screen.` : `The dashboard API request failed: ${errorMessage}.`}
+            title={isStale ? 'Показываю последние успешные данные' : 'Не удалось обновить дашборд'}
+            message={
+              isStale
+                ? `Последний запрос к API завершился ошибкой (${errorMessage}), но на экране остаётся предыдущий успешный снимок.`
+                : `Запрос к dashboard API завершился ошибкой: ${errorMessage}.`
+            }
             variant="warning"
           />
         )}
@@ -161,12 +187,12 @@ export default function App() {
         {data && (
           <>
             <section id="overview" className={styles.section}>
-              <div className={styles.sectionTitle}>Overview</div>
+              <div className={styles.sectionTitle}>Обзор</div>
               {summaryContent}
             </section>
 
             <section id="files" className={styles.section}>
-              <div className={styles.sectionTitle}>Files</div>
+              <div className={styles.sectionTitle}>Файлы</div>
               <FiltersBar
                 filter={filter}
                 onFilterChange={setFilter}
@@ -181,33 +207,33 @@ export default function App() {
             </section>
 
             <section id="metrics" className={styles.section}>
-              <div className={styles.sectionTitle}>Metrics</div>
+              <div className={styles.sectionTitle}>Метрики</div>
               <div className={styles.metricsGrid}>
                 <div className={styles.metricsCard}>
-                  <div className={styles.metricsCardLabel}>Refresh attempts</div>
+                  <div className={styles.metricsCardLabel}>Попытки refresh</div>
                   <div className={styles.metricsCardValue}>{data.metrics.refresh_attempts_total}</div>
-                  <div className={styles.metricsCardHint}>Success {data.metrics.refresh_success_total} · Failure {data.metrics.refresh_failure_total}</div>
+                  <div className={styles.metricsCardHint}>Успешно {data.metrics.refresh_success_total} · Ошибок {data.metrics.refresh_failure_total}</div>
                 </div>
                 <div className={styles.metricsCard}>
-                  <div className={styles.metricsCardLabel}>Scans total</div>
+                  <div className={styles.metricsCardLabel}>Сканирований</div>
                   <div className={styles.metricsCardValue}>{data.metrics.scans_total}</div>
-                  <div className={styles.metricsCardHint}>Last scan {formatAbsolute(data.metrics.last_scan_at)}</div>
+                  <div className={styles.metricsCardHint}>Последний скан {formatAbsolute(data.metrics.last_scan_at)}</div>
                 </div>
                 <div className={styles.metricsCard}>
-                  <div className={styles.metricsCardLabel}>Readiness</div>
-                  <div className={styles.metricsCardValue}>{data.service.ready ? 'Ready' : 'Starting'}</div>
-                  <div className={styles.metricsCardHint}>Started {formatAbsolute(data.service.started_at)}</div>
+                  <div className={styles.metricsCardLabel}>Готовность</div>
+                  <div className={styles.metricsCardValue}>{data.service.ready ? 'Готов' : 'Запуск'}</div>
+                  <div className={styles.metricsCardHint}>Старт {formatAbsolute(data.service.started_at)}</div>
                 </div>
                 <div className={styles.metricsCard}>
                   <div className={styles.metricsCardLabel}>Status API</div>
-                  <div className={styles.metricsCardValue}>{data.config.status_api_enabled ? 'Enabled' : 'Disabled'}</div>
-                  <div className={styles.metricsCardHint}>Raw JSON endpoint availability</div>
+                  <div className={styles.metricsCardValue}>{data.config.status_api_enabled ? 'Включён' : 'Выключен'}</div>
+                  <div className={styles.metricsCardHint}>Доступность сырого JSON-статуса</div>
                 </div>
               </div>
             </section>
 
             <section id="endpoints" className={styles.section}>
-              <div className={styles.sectionTitle}>Endpoints</div>
+              <div className={styles.sectionTitle}>Эндпоинты</div>
               <div className={styles.endpointsCard}>
                 <ul>
                   {endpointItems.map(([label, value]) => (
