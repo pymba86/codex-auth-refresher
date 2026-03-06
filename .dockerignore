@@ -16,7 +16,7 @@ dist/
 coverage/
 *.out
 *.test
-codex-auth-refresher
+/codex-auth-refresher
 
 # Local planning / scratch files
 codex.md

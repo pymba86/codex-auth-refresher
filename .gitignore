@@ -10,7 +10,7 @@ auth/*.bak-*
 *.pid
 
 # Build artifacts
-codex-auth-refresher
+/codex-auth-refresher
 bin/
 dist/
 coverage/
