@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+
+      - name: Check formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=$(find . -name '*.go' -type f)
+          unformatted=$(gofmt -l $files)
+          if [ -n "$unformatted" ]; then
+            echo "The following files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Build Docker image
+        run: docker build -t codex-auth-refresher:ci .
+
+      - name: Smoke test container
+        shell: bash
+        run: |
+          set -euo pipefail
+          auth_dir=$(mktemp -d)
+          chmod 0777 "$auth_dir"
+          cid=""
+          cleanup() {
+            if [ -n "$cid" ]; then
+              docker rm -f "$cid" >/dev/null 2>&1 || true
+            fi
+            rm -rf "$auth_dir"
+          }
+          trap cleanup EXIT
+
+          cid=$(docker run -d \
+            -p 18080:8080 \
+            -v "$auth_dir:/data/auth" \
+            codex-auth-refresher:ci)
+
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18080/healthz >/dev/null && curl -fsS http://127.0.0.1:18080/readyz >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+
+          docker logs "$cid"
+          exit 1

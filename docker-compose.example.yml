@@ -1,0 +1,16 @@
+services:
+  codex-auth-refresher:
+    build: .
+    image: codex-auth-refresher:local
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      CODEX_AUTH_DIR: /data/auth
+      CODEX_LISTEN_ADDR: :8080
+      CODEX_REFRESH_BEFORE: 6h
+      CODEX_SCAN_INTERVAL: 1m
+      CODEX_MAX_PARALLEL: 4
+    volumes:
+      - ./auth:/data/auth
+    ports:
+      - "8080:8080"

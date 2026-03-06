@@ -1,0 +1,27 @@
+# Runtime auth data and backups
+auth/*.json
+auth/*.bak-*
+
+# Local environment
+.env
+.env.*
+!.env.example
+*.log
+*.pid
+
+# Build artifacts
+codex-auth-refresher
+bin/
+dist/
+coverage/
+*.out
+*.test
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Local planning / scratch files
+codex.md
+glm.md

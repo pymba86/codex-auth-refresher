@@ -1,0 +1,23 @@
+# Git
+.git
+.github
+
+# Runtime auth data and backups
+auth/*.json
+auth/*.bak-*
+
+# Local environment and artifacts
+.env
+.env.*
+*.log
+*.pid
+bin/
+dist/
+coverage/
+*.out
+*.test
+codex-auth-refresher
+
+# Local planning / scratch files
+codex.md
+glm.md
