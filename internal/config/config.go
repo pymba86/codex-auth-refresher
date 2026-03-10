@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net/mail"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -25,6 +26,16 @@ type Config struct {
 	LogFormat     string
 	StatusEnable  bool
 	WebEnable     bool
+	EmailEnable   bool
+
+	EmailSMTPHost     string
+	EmailSMTPPort     int
+	EmailSMTPTLSMode  string
+	EmailSMTPUsername string
+	EmailSMTPPassword string
+	EmailFrom         string
+	EmailTo           []string
+	EmailTimeout      time.Duration
 }
 
 func Parse(args []string, env []string) (Config, error) {
@@ -36,20 +47,30 @@ func Parse(args []string, env []string) (Config, error) {
 		}
 	}
 
+	emailToRaw := envMap["CODEX_EMAIL_TO"]
 	cfg := Config{
-		AuthDir:       envMap["CODEX_AUTH_DIR"],
-		ListenAddr:    getOrDefault(envMap["CODEX_LISTEN_ADDR"], ":8080"),
-		RefreshBefore: getDuration(envMap["CODEX_REFRESH_BEFORE"], 6*time.Hour),
-		RefreshMaxAge: getDuration(envMap["CODEX_REFRESH_MAX_AGE"], 0),
-		ScanInterval:  getDuration(envMap["CODEX_SCAN_INTERVAL"], time.Minute),
-		MaxParallel:   getInt(envMap["CODEX_MAX_PARALLEL"], 4),
-		HTTPTimeout:   getDuration(envMap["CODEX_HTTP_TIMEOUT"], 15*time.Second),
-		TokenEndpoint: getOrDefault(envMap["CODEX_TOKEN_ENDPOINT"], "https://auth.openai.com/oauth/token"),
-		ClientID:      envMap["CODEX_CLIENT_ID"],
-		CAFile:        envMap["CODEX_CA_FILE"],
-		LogFormat:     getOrDefault(envMap["CODEX_LOG_FORMAT"], "json"),
-		StatusEnable:  getBool(envMap["CODEX_STATUS_ENABLE"], true),
-		WebEnable:     getBool(envMap["CODEX_WEB_ENABLE"], false),
+		AuthDir:           envMap["CODEX_AUTH_DIR"],
+		ListenAddr:        getOrDefault(envMap["CODEX_LISTEN_ADDR"], ":8080"),
+		RefreshBefore:     getDuration(envMap["CODEX_REFRESH_BEFORE"], 6*time.Hour),
+		RefreshMaxAge:     getDuration(envMap["CODEX_REFRESH_MAX_AGE"], 0),
+		ScanInterval:      getDuration(envMap["CODEX_SCAN_INTERVAL"], time.Minute),
+		MaxParallel:       getInt(envMap["CODEX_MAX_PARALLEL"], 4),
+		HTTPTimeout:       getDuration(envMap["CODEX_HTTP_TIMEOUT"], 15*time.Second),
+		TokenEndpoint:     getOrDefault(envMap["CODEX_TOKEN_ENDPOINT"], "https://auth.openai.com/oauth/token"),
+		ClientID:          envMap["CODEX_CLIENT_ID"],
+		CAFile:            envMap["CODEX_CA_FILE"],
+		LogFormat:         getOrDefault(envMap["CODEX_LOG_FORMAT"], "json"),
+		StatusEnable:      getBool(envMap["CODEX_STATUS_ENABLE"], true),
+		WebEnable:         getBool(envMap["CODEX_WEB_ENABLE"], false),
+		EmailEnable:       getBool(envMap["CODEX_EMAIL_ENABLE"], false),
+		EmailSMTPHost:     envMap["CODEX_EMAIL_SMTP_HOST"],
+		EmailSMTPPort:     getInt(envMap["CODEX_EMAIL_SMTP_PORT"], 587),
+		EmailSMTPTLSMode:  getOrDefault(envMap["CODEX_EMAIL_SMTP_TLS_MODE"], "starttls"),
+		EmailSMTPUsername: envMap["CODEX_EMAIL_SMTP_USERNAME"],
+		EmailSMTPPassword: envMap["CODEX_EMAIL_SMTP_PASSWORD"],
+		EmailFrom:         envMap["CODEX_EMAIL_FROM"],
+		EmailTo:           splitAndTrimCSV(emailToRaw),
+		EmailTimeout:      getDuration(envMap["CODEX_EMAIL_TIMEOUT"], 15*time.Second),
 	}
 
 	fs := flag.NewFlagSet("codex-auth-refresher", flag.ContinueOnError)
@@ -67,9 +88,20 @@ func Parse(args []string, env []string) (Config, error) {
 	fs.StringVar(&cfg.LogFormat, "log-format", cfg.LogFormat, "log format: json or text")
 	fs.BoolVar(&cfg.StatusEnable, "status-enable", cfg.StatusEnable, "enable GET /v1/status")
 	fs.BoolVar(&cfg.WebEnable, "web-enable", cfg.WebEnable, "enable the web dashboard at GET /")
+	fs.BoolVar(&cfg.EmailEnable, "email-enable", cfg.EmailEnable, "enable SMTP email alerts for auth problems")
+	fs.StringVar(&cfg.EmailSMTPHost, "email-smtp-host", cfg.EmailSMTPHost, "SMTP host for email alerts")
+	fs.IntVar(&cfg.EmailSMTPPort, "email-smtp-port", cfg.EmailSMTPPort, "SMTP port for email alerts")
+	fs.StringVar(&cfg.EmailSMTPTLSMode, "email-smtp-tls-mode", cfg.EmailSMTPTLSMode, "SMTP TLS mode: starttls, implicit, or none")
+	fs.StringVar(&cfg.EmailSMTPUsername, "email-smtp-username", cfg.EmailSMTPUsername, "SMTP username for email alerts")
+	fs.StringVar(&cfg.EmailSMTPPassword, "email-smtp-password", cfg.EmailSMTPPassword, "SMTP password for email alerts")
+	fs.StringVar(&cfg.EmailFrom, "email-from", cfg.EmailFrom, "From address for email alerts")
+	fs.StringVar(&emailToRaw, "email-to", emailToRaw, "comma-separated recipient list for email alerts")
+	fs.DurationVar(&cfg.EmailTimeout, "email-timeout", cfg.EmailTimeout, "SMTP timeout for email alerts")
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
 	}
+	cfg.EmailTo = splitAndTrimCSV(emailToRaw)
+	cfg.EmailSMTPTLSMode = strings.ToLower(strings.TrimSpace(cfg.EmailSMTPTLSMode))
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
@@ -109,6 +141,42 @@ func (c Config) Validate() error {
 			}
 			c.CAFile = abs
 		}
+	}
+	if !c.EmailEnable {
+		return nil
+	}
+	if strings.TrimSpace(c.EmailSMTPHost) == "" {
+		return errors.New("email-smtp-host is required when email alerts are enabled")
+	}
+	if c.EmailSMTPPort <= 0 || c.EmailSMTPPort > 65535 {
+		return errors.New("email-smtp-port must be between 1 and 65535")
+	}
+	switch strings.ToLower(strings.TrimSpace(c.EmailSMTPTLSMode)) {
+	case "starttls", "implicit", "none":
+	default:
+		return fmt.Errorf("unsupported email-smtp-tls-mode %q", c.EmailSMTPTLSMode)
+	}
+	usernameSet := strings.TrimSpace(c.EmailSMTPUsername) != ""
+	passwordSet := strings.TrimSpace(c.EmailSMTPPassword) != ""
+	if usernameSet != passwordSet {
+		return errors.New("email-smtp-username and email-smtp-password must be set together")
+	}
+	if strings.TrimSpace(c.EmailFrom) == "" {
+		return errors.New("email-from is required when email alerts are enabled")
+	}
+	if _, err := mail.ParseAddress(strings.TrimSpace(c.EmailFrom)); err != nil {
+		return fmt.Errorf("invalid email-from address: %w", err)
+	}
+	if len(c.EmailTo) == 0 {
+		return errors.New("email-to must contain at least one recipient when email alerts are enabled")
+	}
+	for _, address := range c.EmailTo {
+		if _, err := mail.ParseAddress(address); err != nil {
+			return fmt.Errorf("invalid email-to address %q: %w", address, err)
+		}
+	}
+	if c.EmailTimeout <= 0 {
+		return errors.New("email-timeout must be positive")
 	}
 	return nil
 }
@@ -151,4 +219,19 @@ func getBool(raw string, fallback bool) bool {
 		return fallback
 	}
 	return value
+}
+
+func splitAndTrimCSV(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			values = append(values, trimmed)
+		}
+	}
+	return values
 }

@@ -93,6 +93,46 @@ func TestRefreshFileRejectsResponseWithoutExpiry(t *testing.T) {
 	}
 }
 
+func TestInspectFileRejectsNonCodexType(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "codex-user.json")
+	input := []byte(`{
+  "access_token":"` + testJWT(time.Now().Add(time.Hour), "client-1") + `",
+  "refresh_token":"rt-old",
+  "type":"claude"
+}`)
+	if err := os.WriteFile(path, input, 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	service := NewService(fakeTokenRefresher{}, 2*time.Hour, 0, "fallback-client")
+	_, err := service.InspectFile(path)
+	if !errors.Is(err, ErrNonCodexAuth) {
+		t.Fatalf("InspectFile() error = %v, want ErrNonCodexAuth", err)
+	}
+}
+
+func TestRefreshFileRejectsNonCodexType(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "codex-user.json")
+	input := []byte(`{
+  "access_token":"` + testJWT(time.Now().Add(time.Hour), "client-1") + `",
+  "refresh_token":"rt-old",
+  "type":"claude"
+}`)
+	if err := os.WriteFile(path, input, 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	service := NewService(fakeTokenRefresher{}, 2*time.Hour, 0, "fallback-client")
+	_, err := service.RefreshFile(context.Background(), path)
+	if !errors.Is(err, ErrNonCodexAuth) {
+		t.Fatalf("RefreshFile() error = %v, want ErrNonCodexAuth", err)
+	}
+}
+
 func TestRefreshFileReturnsInvalidGrantState(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

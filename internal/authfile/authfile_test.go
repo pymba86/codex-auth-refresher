@@ -85,6 +85,64 @@ func TestParseNested(t *testing.T) {
 	}
 }
 
+func TestIsCodexFilename(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]bool{
+		"codex-user.json":   true,
+		"CODEX-user.JSON":   true,
+		"/tmp/codex-a.json": true,
+		"user.json":         false,
+		"claude-user.json":  false,
+		"codex-user.txt":    false,
+	}
+
+	for input, want := range tests {
+		if got := IsCodexFilename(input); got != want {
+			t.Fatalf("IsCodexFilename(%q) = %v, want %v", input, got, want)
+		}
+	}
+}
+
+func TestDocumentIsCodexAuth(t *testing.T) {
+	t.Parallel()
+
+	doc, err := Parse("auth/codex-user.json", []byte(`{
+  "access_token": "at",
+  "refresh_token": "rt",
+  "type": " Codex "
+}`))
+	if err != nil {
+		t.Fatalf("Parse(codex) error = %v", err)
+	}
+	if !doc.IsCodexAuth() {
+		t.Fatal("expected codex document to be accepted")
+	}
+
+	other, err := Parse("auth/codex-other.json", []byte(`{
+  "access_token": "at",
+  "refresh_token": "rt",
+  "type": "claude"
+}`))
+	if err != nil {
+		t.Fatalf("Parse(other) error = %v", err)
+	}
+	if other.IsCodexAuth() {
+		t.Fatal("expected non-codex type to be rejected")
+	}
+
+	legacy, err := Parse("auth/codex-legacy.json", []byte(`{
+  "access_token": "at",
+  "refresh_token": "rt"
+}`))
+	if err != nil {
+		t.Fatalf("Parse(legacy) error = %v", err)
+	}
+	if !legacy.IsCodexAuth() {
+		t.Fatal("expected document without type to be accepted")
+	}
+}
+
 func testJWT(exp time.Time, clientID string) string {
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
 	payloadMap := map[string]any{"exp": exp.Unix()}

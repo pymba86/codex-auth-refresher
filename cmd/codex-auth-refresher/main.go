@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"codex-auth-refresher/internal/alerting"
 	"codex-auth-refresher/internal/config"
 	"codex-auth-refresher/internal/httpapi"
 	"codex-auth-refresher/internal/metrics"
@@ -48,6 +49,30 @@ func run() error {
 	oauthClient := oauth.NewClient(cfg.TokenEndpoint, httpClient)
 	refreshService := refresher.NewService(oauthClient, cfg.RefreshBefore, cfg.RefreshMaxAge, cfg.ClientID)
 	manager := scheduler.NewManager(cfg.AuthDir, cfg.ScanInterval, cfg.MaxParallel, refreshService, metricsRegistry, logger)
+	if cfg.EmailEnable {
+		sender, err := alerting.NewSMTPSender(alerting.SMTPConfig{
+			Host:     cfg.EmailSMTPHost,
+			Port:     cfg.EmailSMTPPort,
+			TLSMode:  cfg.EmailSMTPTLSMode,
+			Username: cfg.EmailSMTPUsername,
+			Password: cfg.EmailSMTPPassword,
+			From:     cfg.EmailFrom,
+			Timeout:  cfg.EmailTimeout,
+		})
+		if err != nil {
+			return err
+		}
+		notifier := alerting.NewNotifier(sender, metricsRegistry, logger, cfg.EmailTo, 8)
+		manager.SetNotifier(notifier)
+		go notifier.Run(ctx)
+		logger.Info(
+			"email alerts enabled",
+			"smtp_host", cfg.EmailSMTPHost,
+			"smtp_port", cfg.EmailSMTPPort,
+			"smtp_tls_mode", cfg.EmailSMTPTLSMode,
+			"recipient_count", len(cfg.EmailTo),
+		)
+	}
 
 	handler := httpapi.NewHandler(manager, metricsRegistry, httpapi.Options{
 		StatusEnabled: cfg.StatusEnable,

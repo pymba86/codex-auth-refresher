@@ -73,6 +73,21 @@ curl http://127.0.0.1:8080/v1/dashboard
 curl http://127.0.0.1:8080/v1/status
 ```
 
+## Email alerts
+The service can send plain-text SMTP alerts when it detects auth problems that need attention.
+
+Alert emails are sent only for these states:
+- `degraded`
+- `reauth_required`
+- `invalid_json`
+
+Current behavior:
+- no alert is sent while the service is still `ready=false`
+- no recovery / all-clear email is sent yet
+- the same problem is not re-sent until its `state` or `last_error` changes
+- if a problem disappears and later comes back, a new alert is sent
+- SMTP failures are logged and counted in metrics, but they do not stop scanning or refreshing
+
 ## Local Docker build
 Build the image locally:
 
@@ -230,6 +245,15 @@ docker compose -f docker-compose.ghcr.yml up -d
 | `CODEX_LOG_FORMAT` | `--log-format` | `json` | `json` or `text` |
 | `CODEX_STATUS_ENABLE` | `--status-enable` | `true` | Enable `GET /v1/status` |
 | `CODEX_WEB_ENABLE` | `--web-enable` | `false` | Enable the embedded React dashboard at `GET /` |
+| `CODEX_EMAIL_ENABLE` | `--email-enable` | `false` | Enable SMTP email alerts |
+| `CODEX_EMAIL_SMTP_HOST` | `--email-smtp-host` | required if email is enabled | SMTP host |
+| `CODEX_EMAIL_SMTP_PORT` | `--email-smtp-port` | `587` | SMTP port |
+| `CODEX_EMAIL_SMTP_TLS_MODE` | `--email-smtp-tls-mode` | `starttls` | SMTP TLS mode: `starttls`, `implicit`, or `none` |
+| `CODEX_EMAIL_SMTP_USERNAME` | `--email-smtp-username` | — | Optional SMTP username |
+| `CODEX_EMAIL_SMTP_PASSWORD` | `--email-smtp-password` | — | Optional SMTP password |
+| `CODEX_EMAIL_FROM` | `--email-from` | required if email is enabled | Alert sender address |
+| `CODEX_EMAIL_TO` | `--email-to` | required if email is enabled | Comma-separated alert recipients |
+| `CODEX_EMAIL_TIMEOUT` | `--email-timeout` | `15s` | SMTP connection and send timeout |
 
 ## First push checklist
 Before the first public push:

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"codex-auth-refresher/internal/alerting"
 	"codex-auth-refresher/internal/metrics"
 	"codex-auth-refresher/internal/oauth"
 	"codex-auth-refresher/internal/refresher"
@@ -63,11 +64,30 @@ func (b *blockingTokenRefresher) Stats() (calls int, inFlight int, maxInFlight i
 	return b.calls, b.inFlight, b.maxInFlight
 }
 
+type fakeNotifier struct {
+	mu        sync.Mutex
+	snapshots []alerting.Snapshot
+}
+
+func (f *fakeNotifier) Notify(snapshot alerting.Snapshot) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.snapshots = append(f.snapshots, snapshot)
+}
+
+func (f *fakeNotifier) Snapshots() []alerting.Snapshot {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]alerting.Snapshot, len(f.snapshots))
+	copy(out, f.snapshots)
+	return out
+}
+
 func TestManagerRefreshesValidFilesAndKeepsInvalidJSON(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	validPath := filepath.Join(dir, "valid.json")
-	invalidPath := filepath.Join(dir, "broken.json")
+	validPath := filepath.Join(dir, "codex-valid.json")
+	invalidPath := filepath.Join(dir, "codex-broken.json")
 	soon := time.Now().Add(10 * time.Minute).UTC().Format(time.RFC3339)
 	if err := os.WriteFile(validPath, []byte(`{"access_token":"`+testJWT(time.Now().Add(10*time.Minute), "client-1")+`","refresh_token":"rt-1","expired":"`+soon+`"}`), 0o600); err != nil {
 		t.Fatalf("WriteFile(valid) error = %v", err)
@@ -92,7 +112,7 @@ func TestManagerRefreshesValidFilesAndKeepsInvalidJSON(t *testing.T) {
 			for _, file := range snapshot.Files {
 				states[file.File] = string(file.State)
 			}
-			if states["valid.json"] == "ok" && states["broken.json"] == "invalid_json" {
+			if states["codex-valid.json"] == "ok" && states["codex-broken.json"] == "invalid_json" {
 				return
 			}
 		}
@@ -104,7 +124,7 @@ func TestManagerRefreshesValidFilesAndKeepsInvalidJSON(t *testing.T) {
 func TestManagerAppliesBackoffOnTooManyRequests(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	path := filepath.Join(dir, "rate-limited.json")
+	path := filepath.Join(dir, "codex-rate-limited.json")
 	soon := time.Now().Add(10 * time.Minute).UTC().Format(time.RFC3339)
 	if err := os.WriteFile(path, []byte(`{"access_token":"`+testJWT(time.Now().Add(10*time.Minute), "client-1")+`","refresh_token":"rt-1","expired":"`+soon+`"}`), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
@@ -146,7 +166,7 @@ func TestManagerSerializesSameAccountRefreshes(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	soon := time.Now().Add(10 * time.Minute).UTC().Format(time.RFC3339)
-	for _, name := range []string{"a.json", "b.json"} {
+	for _, name := range []string{"codex-a.json", "codex-b.json"} {
 		content := `{"access_token":"` + testJWT(time.Now().Add(10*time.Minute), "client-1") + `","refresh_token":"rt-1","expired":"` + soon + `","account_id":"acct-1"}`
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
 			t.Fatalf("WriteFile(%s) error = %v", name, err)
@@ -192,6 +212,112 @@ func TestManagerSerializesSameAccountRefreshes(t *testing.T) {
 	})
 	if _, _, maxInFlight := blocking.Stats(); maxInFlight != 1 {
 		t.Fatalf("maxInFlight = %d, want 1", maxInFlight)
+	}
+}
+
+func TestManagerIgnoresNonCodexFiles(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	soon := time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339)
+
+	if err := os.WriteFile(filepath.Join(dir, "codex-user.json"), []byte(`{
+  "access_token":"`+testJWT(time.Now().Add(24*time.Hour), "client-1")+`",
+  "refresh_token":"rt-1",
+  "expired":"`+soon+`"
+}`), 0o600); err != nil {
+		t.Fatalf("WriteFile(codex-user) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "claude-user.json"), []byte(`{
+  "access_token":"`+testJWT(time.Now().Add(24*time.Hour), "client-1")+`",
+  "refresh_token":"rt-2",
+  "expired":"`+soon+`"
+}`), 0o600); err != nil {
+		t.Fatalf("WriteFile(claude-user) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "gemini-broken.json"), []byte(`{"access_token":`), 0o600); err != nil {
+		t.Fatalf("WriteFile(gemini-broken) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "codex-foreign.json"), []byte(`{
+  "access_token":"`+testJWT(time.Now().Add(24*time.Hour), "client-1")+`",
+  "refresh_token":"rt-3",
+  "expired":"`+soon+`",
+  "type":"claude"
+}`), 0o600); err != nil {
+		t.Fatalf("WriteFile(codex-foreign) error = %v", err)
+	}
+
+	refreshService := refresher.NewService(fakeTokenRefresher{}, 6*time.Hour, 0, "fallback-client")
+	manager := NewManager(dir, time.Hour, 1, refreshService, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	manager.watchFactory = nil
+
+	if err := manager.scanOnce(context.Background()); err != nil {
+		t.Fatalf("scanOnce() error = %v", err)
+	}
+
+	snapshot := manager.Snapshot()
+	if len(snapshot.Files) != 1 {
+		t.Fatalf("len(snapshot.Files) = %d, want 1; snapshot=%+v", len(snapshot.Files), snapshot)
+	}
+	if got := snapshot.Files[0].File; got != "codex-user.json" {
+		t.Fatalf("snapshot.Files[0].File = %q, want codex-user.json", got)
+	}
+}
+
+func TestManagerPublishesProblemSnapshotsForAlerts(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	validPath := filepath.Join(dir, "codex-valid.json")
+	invalidPath := filepath.Join(dir, "codex-broken.json")
+	soon := time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339)
+
+	if err := os.WriteFile(validPath, []byte(`{"access_token":"`+testJWT(time.Now().Add(24*time.Hour), "client-1")+`","refresh_token":"rt-1","expired":"`+soon+`"}`), 0o600); err != nil {
+		t.Fatalf("WriteFile(valid) error = %v", err)
+	}
+	if err := os.WriteFile(invalidPath, []byte(`{"access_token":`), 0o600); err != nil {
+		t.Fatalf("WriteFile(invalid) error = %v", err)
+	}
+
+	refreshService := refresher.NewService(fakeTokenRefresher{}, 6*time.Hour, 0, "fallback-client")
+	manager := NewManager(dir, time.Hour, 1, refreshService, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	notifier := &fakeNotifier{}
+	manager.SetNotifier(notifier)
+
+	if err := manager.scanOnce(context.Background()); err != nil {
+		t.Fatalf("scanOnce() error = %v", err)
+	}
+
+	snapshots := notifier.Snapshots()
+	if len(snapshots) != 1 {
+		t.Fatalf("len(snapshots) = %d, want 1", len(snapshots))
+	}
+	if len(snapshots[0].Problems) != 1 {
+		t.Fatalf("len(snapshot.Problems) = %d, want 1", len(snapshots[0].Problems))
+	}
+	problem := snapshots[0].Problems[0]
+	if problem.Path != invalidPath {
+		t.Fatalf("problem.Path = %q, want %q", problem.Path, invalidPath)
+	}
+	if problem.State != string(refresher.StateInvalidJSON) {
+		t.Fatalf("problem.State = %q, want %q", problem.State, refresher.StateInvalidJSON)
+	}
+
+	if err := os.WriteFile(invalidPath, []byte(`{"access_token":"`+testJWT(time.Now().Add(24*time.Hour), "client-1")+`","refresh_token":"rt-2","expired":"`+soon+`"}`), 0o600); err != nil {
+		t.Fatalf("WriteFile(fixed) error = %v", err)
+	}
+	future := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(invalidPath, future, future); err != nil {
+		t.Fatalf("Chtimes() error = %v", err)
+	}
+	if err := manager.scanOnce(context.Background()); err != nil {
+		t.Fatalf("scanOnce() second error = %v", err)
+	}
+
+	snapshots = notifier.Snapshots()
+	if len(snapshots) != 2 {
+		t.Fatalf("len(snapshots) = %d, want 2", len(snapshots))
+	}
+	if len(snapshots[1].Problems) != 0 {
+		t.Fatalf("len(second snapshot problems) = %d, want 0", len(snapshots[1].Problems))
 	}
 }
 

@@ -8,25 +8,31 @@ import (
 )
 
 type Snapshot struct {
-	ScansTotal          uint64
-	RefreshAttempts     uint64
-	RefreshSuccessTotal uint64
-	RefreshFailureTotal uint64
-	TrackedFiles        int64
-	ReauthFiles         int64
-	InvalidJSONFiles    int64
-	LastScanAt          *time.Time
+	ScansTotal                     uint64
+	RefreshAttempts                uint64
+	RefreshSuccessTotal            uint64
+	RefreshFailureTotal            uint64
+	EmailNotificationsSentTotal    uint64
+	EmailNotificationsFailedTotal  uint64
+	EmailNotificationsDroppedTotal uint64
+	TrackedFiles                   int64
+	ReauthFiles                    int64
+	InvalidJSONFiles               int64
+	LastScanAt                     *time.Time
 }
 
 type Registry struct {
-	scansTotal          atomic.Uint64
-	refreshAttempts     atomic.Uint64
-	refreshSuccessTotal atomic.Uint64
-	refreshFailureTotal atomic.Uint64
-	trackedFiles        atomic.Int64
-	reauthFiles         atomic.Int64
-	invalidJSONFiles    atomic.Int64
-	lastScanUnix        atomic.Int64
+	scansTotal                     atomic.Uint64
+	refreshAttempts                atomic.Uint64
+	refreshSuccessTotal            atomic.Uint64
+	refreshFailureTotal            atomic.Uint64
+	emailNotificationsSentTotal    atomic.Uint64
+	emailNotificationsFailedTotal  atomic.Uint64
+	emailNotificationsDroppedTotal atomic.Uint64
+	trackedFiles                   atomic.Int64
+	reauthFiles                    atomic.Int64
+	invalidJSONFiles               atomic.Int64
+	lastScanUnix                   atomic.Int64
 }
 
 func New() *Registry {
@@ -50,6 +56,18 @@ func (r *Registry) IncRefreshFailure() {
 	r.refreshFailureTotal.Add(1)
 }
 
+func (r *Registry) IncEmailNotificationsSent() {
+	r.emailNotificationsSentTotal.Add(1)
+}
+
+func (r *Registry) IncEmailNotificationsFailed() {
+	r.emailNotificationsFailedTotal.Add(1)
+}
+
+func (r *Registry) IncEmailNotificationsDropped() {
+	r.emailNotificationsDroppedTotal.Add(1)
+}
+
 func (r *Registry) SetTrackedFiles(total, reauth, invalid int) {
 	r.trackedFiles.Store(int64(total))
 	r.reauthFiles.Store(int64(reauth))
@@ -63,14 +81,17 @@ func (r *Registry) Snapshot() Snapshot {
 		lastScanAt = &value
 	}
 	return Snapshot{
-		ScansTotal:          r.scansTotal.Load(),
-		RefreshAttempts:     r.refreshAttempts.Load(),
-		RefreshSuccessTotal: r.refreshSuccessTotal.Load(),
-		RefreshFailureTotal: r.refreshFailureTotal.Load(),
-		TrackedFiles:        r.trackedFiles.Load(),
-		ReauthFiles:         r.reauthFiles.Load(),
-		InvalidJSONFiles:    r.invalidJSONFiles.Load(),
-		LastScanAt:          lastScanAt,
+		ScansTotal:                     r.scansTotal.Load(),
+		RefreshAttempts:                r.refreshAttempts.Load(),
+		RefreshSuccessTotal:            r.refreshSuccessTotal.Load(),
+		RefreshFailureTotal:            r.refreshFailureTotal.Load(),
+		EmailNotificationsSentTotal:    r.emailNotificationsSentTotal.Load(),
+		EmailNotificationsFailedTotal:  r.emailNotificationsFailedTotal.Load(),
+		EmailNotificationsDroppedTotal: r.emailNotificationsDroppedTotal.Load(),
+		TrackedFiles:                   r.trackedFiles.Load(),
+		ReauthFiles:                    r.reauthFiles.Load(),
+		InvalidJSONFiles:               r.invalidJSONFiles.Load(),
+		LastScanAt:                     lastScanAt,
 	}
 }
 
@@ -88,6 +109,15 @@ func (r *Registry) RenderPrometheus() string {
 	fmt.Fprintf(builder, "# HELP codex_auth_refresh_failure_total Failed token refresh operations.\n")
 	fmt.Fprintf(builder, "# TYPE codex_auth_refresh_failure_total counter\n")
 	fmt.Fprintf(builder, "codex_auth_refresh_failure_total %d\n", r.refreshFailureTotal.Load())
+	fmt.Fprintf(builder, "# HELP codex_auth_email_notifications_sent_total Successfully sent email notifications.\n")
+	fmt.Fprintf(builder, "# TYPE codex_auth_email_notifications_sent_total counter\n")
+	fmt.Fprintf(builder, "codex_auth_email_notifications_sent_total %d\n", r.emailNotificationsSentTotal.Load())
+	fmt.Fprintf(builder, "# HELP codex_auth_email_notifications_failed_total Failed email notification attempts.\n")
+	fmt.Fprintf(builder, "# TYPE codex_auth_email_notifications_failed_total counter\n")
+	fmt.Fprintf(builder, "codex_auth_email_notifications_failed_total %d\n", r.emailNotificationsFailedTotal.Load())
+	fmt.Fprintf(builder, "# HELP codex_auth_email_notifications_dropped_total Dropped email notification snapshots due to backpressure.\n")
+	fmt.Fprintf(builder, "# TYPE codex_auth_email_notifications_dropped_total counter\n")
+	fmt.Fprintf(builder, "codex_auth_email_notifications_dropped_total %d\n", r.emailNotificationsDroppedTotal.Load())
 	fmt.Fprintf(builder, "# HELP codex_auth_files_tracked Number of tracked auth files.\n")
 	fmt.Fprintf(builder, "# TYPE codex_auth_files_tracked gauge\n")
 	fmt.Fprintf(builder, "codex_auth_files_tracked %d\n", r.trackedFiles.Load())

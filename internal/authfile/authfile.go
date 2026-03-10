@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -67,6 +68,17 @@ func (d *Document) FilePath() string {
 
 func (d *Document) BaseName() string {
 	return filepath.Base(d.path)
+}
+
+func (d *Document) Type() string {
+	return normalizeType(d.stringField(d.raw, "type"))
+}
+
+func (d *Document) IsCodexAuth() bool {
+	if !hasField(d.raw, "type") {
+		return true
+	}
+	return d.Type() == "codex"
 }
 
 func (d *Document) AccountID() string {
@@ -190,4 +202,13 @@ func (d *Document) setString(raw map[string]json.RawMessage, name, value string)
 func hasField(raw map[string]json.RawMessage, name string) bool {
 	_, ok := raw[name]
 	return ok
+}
+
+func IsCodexFilename(path string) bool {
+	base := strings.ToLower(filepath.Base(path))
+	return strings.HasPrefix(base, "codex-") && strings.HasSuffix(base, ".json")
+}
+
+func normalizeType(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
 }

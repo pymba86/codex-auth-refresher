@@ -25,6 +25,7 @@ const (
 var (
 	ErrMissingRefreshToken = errors.New("missing refresh token")
 	ErrMissingClientID     = errors.New("missing client id")
+	ErrNonCodexAuth        = errors.New("auth file is not codex")
 	ErrUnknownExpiry       = errors.New("unable to determine token expiry")
 )
 
@@ -75,6 +76,9 @@ func (s *Service) InspectFile(path string) (Inspection, error) {
 	if err != nil {
 		return Inspection{Path: path, File: path}, err
 	}
+	if !doc.IsCodexAuth() {
+		return Inspection{Path: path, File: path}, ErrNonCodexAuth
+	}
 	return s.inspectDocument(doc), nil
 }
 
@@ -82,6 +86,9 @@ func (s *Service) RefreshFile(ctx context.Context, path string) (Result, error) 
 	doc, err := authfile.Load(path)
 	if err != nil {
 		return Result{Inspection: Inspection{Path: path, File: path}}, err
+	}
+	if !doc.IsCodexAuth() {
+		return Result{Inspection: Inspection{Path: path, File: path}}, ErrNonCodexAuth
 	}
 	inspection := s.inspectDocument(doc)
 	if inspection.Disabled {

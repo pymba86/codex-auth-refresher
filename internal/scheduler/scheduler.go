@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"codex-auth-refresher/internal/alerting"
+	"codex-auth-refresher/internal/authfile"
 	"codex-auth-refresher/internal/metrics"
 	"codex-auth-refresher/internal/oauth"
 	"codex-auth-refresher/internal/refresher"
@@ -57,6 +59,10 @@ type directoryWatcher interface {
 	Close() error
 }
 
+type problemNotifier interface {
+	Notify(alerting.Snapshot)
+}
+
 type Manager struct {
 	authDir      string
 	scanInterval time.Duration
@@ -64,6 +70,7 @@ type Manager struct {
 	refresher    *refresher.Service
 	metrics      *metrics.Registry
 	logger       *slog.Logger
+	notifier     problemNotifier
 	startedAt    time.Time
 	watchFactory func(string) (directoryWatcher, error)
 
@@ -91,6 +98,12 @@ func NewManager(authDir string, scanInterval time.Duration, maxParallel int, ref
 		accountsBusy: make(map[string]bool),
 		jobs:         make(chan refreshJob, maxParallel*4),
 	}
+}
+
+func (m *Manager) SetNotifier(notifier problemNotifier) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.notifier = notifier
 }
 
 func (m *Manager) Run(ctx context.Context) error {
@@ -177,10 +190,10 @@ func (m *Manager) handleJob(ctx context.Context, job refreshJob) {
 	result, err := m.refresher.RefreshFile(ctx, job.path)
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	record := m.files[job.path]
 	if record == nil {
 		delete(m.accountsBusy, job.accountKey)
+		m.mu.Unlock()
 		return
 	}
 	record.busy = false
@@ -199,7 +212,11 @@ func (m *Manager) handleJob(ctx context.Context, job refreshJob) {
 		record.status.State = classifyState(err)
 		record.nextAttemptAt = nextAttemptTime(record.status.ConsecutiveFailures, record.status.State)
 		m.updateMetricsLocked()
-		m.logger.Warn("refresh failed", "file", filepath.Base(job.path), "state", record.status.State, "error", record.status.LastError)
+		state := record.status.State
+		lastError := record.status.LastError
+		m.mu.Unlock()
+		m.logger.Warn("refresh failed", "file", filepath.Base(job.path), "state", state, "error", lastError)
+		m.notifyProblems(time.Now().UTC())
 		return
 	}
 
@@ -218,7 +235,9 @@ func (m *Manager) handleJob(ctx context.Context, job refreshJob) {
 	record.nextAttemptAt = time.Time{}
 	m.metrics.IncRefreshSuccess()
 	m.updateMetricsLocked()
+	m.mu.Unlock()
 	m.logger.Info("refresh succeeded", "file", filepath.Base(job.path), "account_id", result.Inspection.AccountID)
+	m.notifyProblems(time.Now().UTC())
 }
 
 func (m *Manager) runScan(ctx context.Context) error {
@@ -239,7 +258,7 @@ func (m *Manager) scanOnce(ctx context.Context) error {
 	now := time.Now().UTC()
 
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.EqualFold(filepath.Ext(entry.Name()), ".json") {
+		if entry.IsDir() || !authfile.IsCodexFilename(entry.Name()) {
 			continue
 		}
 		path := filepath.Join(m.authDir, entry.Name())
@@ -248,8 +267,12 @@ func (m *Manager) scanOnce(ctx context.Context) error {
 			m.logger.Warn("stat auth file failed", "file", entry.Name(), "error", infoErr)
 			continue
 		}
-		seen[path] = true
 		inspection, inspectErr := m.refresher.InspectFile(path)
+		if errors.Is(inspectErr, refresher.ErrNonCodexAuth) {
+			m.logger.Debug("ignored non-codex auth file", "file", entry.Name())
+			continue
+		}
+		seen[path] = true
 
 		m.mu.Lock()
 		record := m.ensureRecordLocked(path, entry.Name())
@@ -306,6 +329,7 @@ func (m *Manager) scanOnce(ctx context.Context) error {
 	m.ready = true
 	m.updateMetricsLocked()
 	m.mu.Unlock()
+	m.notifyProblems(now)
 
 	for _, job := range jobs {
 		select {
@@ -340,6 +364,44 @@ func (m *Manager) updateMetricsLocked() {
 		}
 	}
 	m.metrics.SetTrackedFiles(total, reauth, invalid)
+}
+
+func (m *Manager) notifyProblems(generatedAt time.Time) {
+	m.mu.RLock()
+	if !m.ready || m.notifier == nil {
+		m.mu.RUnlock()
+		return
+	}
+	snapshot := alerting.Snapshot{
+		GeneratedAt: generatedAt.UTC(),
+		Problems:    m.problemSnapshotLocked(),
+	}
+	m.mu.RUnlock()
+	m.notifier.Notify(snapshot)
+}
+
+func (m *Manager) problemSnapshotLocked() []alerting.Problem {
+	problems := make([]alerting.Problem, 0, len(m.files))
+	for path, record := range m.files {
+		switch record.status.State {
+		case refresher.StateDegraded, refresher.StateReauthRequired, refresher.StateInvalidJSON:
+			problems = append(problems, alerting.Problem{
+				Path:                path,
+				File:                record.status.File,
+				AccountID:           record.status.AccountID,
+				State:               string(record.status.State),
+				LastError:           record.status.LastError,
+				Disabled:            record.status.Disabled,
+				ConsecutiveFailures: record.status.ConsecutiveFailures,
+				NextRefreshAt:       cloneTime(record.status.NextRefreshAt),
+				LastRefreshAt:       cloneTime(record.status.LastRefreshAt),
+			})
+		}
+	}
+	sort.SliceStable(problems, func(i, j int) bool {
+		return problems[i].Path < problems[j].Path
+	})
+	return problems
 }
 
 func cloneStatus(status FileStatus) FileStatus {
