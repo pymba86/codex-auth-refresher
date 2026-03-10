@@ -44,3 +44,18 @@
   color: #a9bdd8;
   font-size: 0.88rem;
 }
+
+@media (max-width: 720px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .card {
+    padding: 1rem;
+    border-radius: 20px;
+  }
+
+  .value {
+    font-size: 1.65rem;
+  }
+}

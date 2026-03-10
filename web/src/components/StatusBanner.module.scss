@@ -9,6 +9,10 @@
   box-shadow: 0 14px 28px rgba(2, 6, 23, 0.24);
 }
 
+.banner > :last-child {
+  min-width: 0;
+}
+
 .warning {
   border-color: rgba(255, 196, 97, 0.26);
   background: linear-gradient(180deg, rgba(56, 35, 13, 0.72), rgba(29, 20, 13, 0.82));
@@ -29,4 +33,13 @@
   color: #b7c8de;
   line-height: 1.5;
   font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .banner {
+    padding: 0.9rem 1rem;
+    border-radius: 16px;
+    gap: 0.75rem;
+  }
 }

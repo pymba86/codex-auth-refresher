@@ -66,3 +66,27 @@
   color: #bdd2ee;
   font-weight: 600;
 }
+
+@media (max-width: 720px) {
+  .chips {
+    gap: 0.55rem;
+  }
+
+  .chip {
+    padding: 0.62rem 0.88rem;
+  }
+
+  .row {
+    align-items: stretch;
+    justify-content: flex-start;
+  }
+
+  .search {
+    flex-basis: 100%;
+    width: 100%;
+  }
+
+  .checkbox {
+    width: 100%;
+  }
+}

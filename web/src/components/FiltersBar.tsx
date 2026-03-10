@@ -1,15 +1,16 @@
 import { Search } from 'lucide-react';
 
+import { type TranslationKey, useI18n } from '../i18n';
 import styles from './FiltersBar.module.scss';
 
 export type FileFilter = 'all' | 'ok' | 'degraded' | 'reauth_required' | 'invalid_json';
 
-const FILTERS: Array<{ key: FileFilter; label: string }> = [
-  { key: 'all', label: 'Все' },
-  { key: 'ok', label: 'OK' },
-  { key: 'degraded', label: 'Проблемные' },
-  { key: 'reauth_required', label: 'Нужен вход' },
-  { key: 'invalid_json', label: 'Некорректные' },
+const FILTERS: Array<{ key: FileFilter; labelKey: TranslationKey }> = [
+  { key: 'all', labelKey: 'filters.all' },
+  { key: 'ok', labelKey: 'filters.ok' },
+  { key: 'degraded', labelKey: 'filters.degraded' },
+  { key: 'reauth_required', labelKey: 'filters.reauthRequired' },
+  { key: 'invalid_json', labelKey: 'filters.invalidJson' },
 ];
 
 export function FiltersBar({
@@ -27,6 +28,8 @@ export function FiltersBar({
   showDisabled: boolean;
   onShowDisabledChange: (value: boolean) => void;
 }) {
+  const { t } = useI18n();
+
   return (
     <div className={styles.toolbar}>
       <div className={styles.chips}>
@@ -37,7 +40,7 @@ export function FiltersBar({
             className={`${styles.chip} ${filter === item.key ? styles.active : ''}`}
             onClick={() => onFilterChange(item.key)}
           >
-            {item.label}
+            {t(item.labelKey)}
           </button>
         ))}
       </div>
@@ -47,7 +50,7 @@ export function FiltersBar({
           <input
             value={search}
             onChange={(event) => onSearchChange(event.target.value)}
-            placeholder="Поиск по файлу или account_id"
+            placeholder={t('filters.searchPlaceholder')}
           />
         </label>
         <label className={styles.checkbox}>
@@ -56,7 +59,7 @@ export function FiltersBar({
             checked={showDisabled}
             onChange={(event) => onShowDisabledChange(event.target.checked)}
           />
-          Показывать отключённые файлы
+          {t('filters.showDisabled')}
         </label>
       </div>
     </div>

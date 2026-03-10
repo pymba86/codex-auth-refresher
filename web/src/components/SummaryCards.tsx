@@ -1,24 +1,67 @@
 import type { DashboardResponse } from '../types';
+import { useI18n } from '../i18n';
 import { formatAbsolute, formatDuration } from '../utils/time';
 
 import styles from './SummaryCards.module.scss';
 
 export function SummaryCards({ data }: { data: DashboardResponse }) {
+  const { locale, t } = useI18n();
+
   const items = [
-    { label: 'Отслеживаемые файлы', value: data.summary.tracked_files, helper: `${data.summary.disabled_files} отключено` },
-    { label: 'Исправные', value: data.summary.ok_files, helper: 'Цикл refresh работает стабильно' },
-    { label: 'Проблемные', value: data.summary.degraded_files, helper: `${data.metrics.refresh_failure_total} ошибок всего` },
-    { label: 'Требуют входа', value: data.summary.reauth_required_files, helper: 'Нужен новый --codex-login' },
-    { label: 'Некорректный JSON', value: data.summary.invalid_json_files, helper: 'Парсер не смог прочитать файл' },
-    { label: 'Аптайм', value: formatDuration(data.service.uptime_seconds), helper: `Запущен ${formatAbsolute(data.service.started_at)}` },
-    { label: 'Последний скан', value: formatAbsolute(data.metrics.last_scan_at), helper: `${data.metrics.scans_total} сканирований всего` },
-    { label: 'Успешные refresh', value: data.metrics.refresh_success_total, helper: `${data.metrics.refresh_attempts_total} попыток всего` },
+    {
+      key: 'tracked',
+      label: t('summary.trackedFiles'),
+      value: data.summary.tracked_files,
+      helper: t('summary.trackedFilesHelper', { count: data.summary.disabled_files }),
+    },
+    {
+      key: 'ok',
+      label: t('summary.okFiles'),
+      value: data.summary.ok_files,
+      helper: t('summary.okFilesHelper'),
+    },
+    {
+      key: 'degraded',
+      label: t('summary.degradedFiles'),
+      value: data.summary.degraded_files,
+      helper: t('summary.degradedFilesHelper', { count: data.metrics.refresh_failure_total }),
+    },
+    {
+      key: 'reauth',
+      label: t('summary.reauthFiles'),
+      value: data.summary.reauth_required_files,
+      helper: t('summary.reauthFilesHelper'),
+    },
+    {
+      key: 'invalid',
+      label: t('summary.invalidJsonFiles'),
+      value: data.summary.invalid_json_files,
+      helper: t('summary.invalidJsonFilesHelper'),
+    },
+    {
+      key: 'uptime',
+      label: t('summary.uptime'),
+      value: formatDuration(data.service.uptime_seconds, locale),
+      helper: t('summary.uptimeHelper', { time: formatAbsolute(data.service.started_at, locale) }),
+    },
+    {
+      key: 'scan',
+      label: t('summary.lastScan'),
+      value: formatAbsolute(data.metrics.last_scan_at, locale),
+      helper: t('summary.lastScanHelper', { count: data.metrics.scans_total }),
+    },
+    {
+      key: 'success',
+      label: t('summary.refreshSuccess'),
+      value: data.metrics.refresh_success_total,
+      helper: t('summary.refreshSuccessHelper', { count: data.metrics.refresh_attempts_total }),
+    },
   ];
 
   return (
     <div className={styles.grid}>
       {items.map((item) => (
-        <section key={item.label} className={styles.card}>
+        <section key={item.key} className={styles.card}>
           <div className={styles.label}>{item.label}</div>
           <div className={styles.value}>{item.value}</div>
           <div className={styles.helper}>{item.helper}</div>

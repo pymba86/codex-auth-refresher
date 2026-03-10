@@ -15,6 +15,10 @@
   border-bottom: 1px solid rgba(100, 138, 214, 0.12);
 }
 
+.headerCopy {
+  min-width: 0;
+}
+
 .title {
   font-size: 1.05rem;
   font-weight: 800;
@@ -26,8 +30,18 @@
   font-size: 0.88rem;
 }
 
+.countMeta {
+  flex: 0 0 auto;
+}
+
+.tableDesktop {
+  display: block;
+}
+
 .tableWrap {
   overflow-x: auto;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
 }
 
 .table {
@@ -61,6 +75,11 @@
   color: #f8fbff;
 }
 
+.wrapAnywhere {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .subtle {
   margin-top: 0.25rem;
   color: #89a2c5;
@@ -92,8 +111,72 @@
   color: #a8bdd7;
 }
 
+.mobileCards {
+  display: none;
+}
+
+.mobileCard {
+  border-top: 1px solid rgba(92, 118, 170, 0.12);
+  padding: 1rem 1.1rem 1.15rem;
+}
+
+.mobileField + .mobileField {
+  margin-top: 0.9rem;
+}
+
+.mobileFieldLabel {
+  color: #87a0c7;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+}
+
+.mobileFieldValue {
+  min-width: 0;
+  margin-top: 0.32rem;
+  color: #dce8fb;
+}
+
 @media (max-width: 960px) {
   .table {
-    min-width: 760px;
+    min-width: 720px;
+  }
+
+  .table th,
+  .table td {
+    padding: 0.88rem 0.9rem;
+  }
+}
+
+@media (max-width: 720px) {
+  .surface {
+    border-radius: 22px;
+  }
+
+  .header {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 1rem 1rem 0.95rem;
+  }
+
+  .countMeta {
+    flex: none;
+  }
+
+  .tableDesktop {
+    display: none;
+  }
+
+  .mobileCards {
+    display: block;
+  }
+
+  .mobileCard {
+    padding-inline: 1rem;
+  }
+
+  .error {
+    max-width: none;
   }
 }

@@ -4,15 +4,18 @@ import { useEffect, useMemo, useState } from 'react';
 import { FileTable } from './components/FileTable';
 import { type FileFilter, FiltersBar } from './components/FiltersBar';
 import { StatusBanner } from './components/StatusBanner';
-import { StatusPill } from './components/StatusPill';
 import { SummaryCards } from './components/SummaryCards';
+import { type Locale, type TranslationKey, useI18n } from './i18n';
 import { useDashboardPoll } from './hooks/useDashboardPoll';
-import { formatAbsolute, formatDuration } from './utils/time';
+import { formatAbsolute, formatClockTime, formatDuration } from './utils/time';
 import styles from './App.module.scss';
 
 const FILTER_KEY = 'codex-dashboard-filter';
 const SEARCH_KEY = 'codex-dashboard-search';
 const SHOW_DISABLED_KEY = 'codex-dashboard-show-disabled';
+
+const SUPPORTED_LOCALES: Locale[] = ['ru', 'en'];
+const FILE_FILTERS: FileFilter[] = ['all', 'ok', 'degraded', 'reauth_required', 'invalid_json'];
 
 const PRIORITY: Record<string, number> = {
   reauth_required: 0,
@@ -20,6 +23,17 @@ const PRIORITY: Record<string, number> = {
   degraded: 2,
   ok: 3,
 };
+
+const ENDPOINT_ITEMS: Array<{ labelKey: TranslationKey; value: string }> = [
+  { labelKey: 'endpoint.dashboard', value: 'GET /' },
+  { labelKey: 'endpoint.uiJson', value: 'GET /v1/dashboard' },
+  { labelKey: 'endpoint.healthz', value: 'GET /healthz' },
+  { labelKey: 'endpoint.readyz', value: 'GET /readyz' },
+  { labelKey: 'endpoint.metrics', value: 'GET /metrics' },
+  { labelKey: 'endpoint.rawStatus', value: 'GET /v1/status' },
+];
+
+type TranslateFn = (key: TranslationKey, params?: Record<string, number | string>) => string;
 
 function readStoredBoolean(key: string, fallback: boolean) {
   const value = window.localStorage.getItem(key);
@@ -29,29 +43,35 @@ function readStoredBoolean(key: string, fallback: boolean) {
   return value === 'true';
 }
 
-function localizeError(error: string | null): string | null {
+function readStoredFilter(): FileFilter {
+  const value = window.localStorage.getItem(FILTER_KEY);
+  return FILE_FILTERS.includes(value as FileFilter) ? (value as FileFilter) : 'all';
+}
+
+function localizeError(error: string | null, t: TranslateFn): string | null {
   if (!error) {
     return null;
   }
   if (error.startsWith('dashboard_request_failed:')) {
-    return `HTTP ${error.slice('dashboard_request_failed:'.length)}`;
+    return t('error.httpStatus', { status: error.slice('dashboard_request_failed:'.length) });
   }
   if (error === 'unknown_dashboard_error') {
-    return 'неизвестная ошибка дашборда';
+    return t('error.unknownDashboard');
   }
   return error;
 }
 
-function localizeConfigValue(value: string): string {
+function localizeConfigValue(value: string, t: TranslateFn): string {
   if (value === 'disabled') {
-    return 'выключено';
+    return t('common.disabledValue');
   }
   return value;
 }
 
 export default function App() {
+  const { locale, setLocale, t } = useI18n();
   const { data, error, isStale, loading, lastUpdatedAt, pollIntervalMs, refresh } = useDashboardPoll();
-  const [filter, setFilter] = useState<FileFilter>(() => (window.localStorage.getItem(FILTER_KEY) as FileFilter) || 'all');
+  const [filter, setFilter] = useState<FileFilter>(() => readStoredFilter());
   const [search, setSearch] = useState(() => window.localStorage.getItem(SEARCH_KEY) ?? '');
   const [showDisabled, setShowDisabled] = useState(() => readStoredBoolean(SHOW_DISABLED_KEY, true));
 
@@ -92,17 +112,7 @@ export default function App() {
       });
   }, [data, filter, search, showDisabled]);
 
-  const endpointItems = [
-    ['Дашборд', 'GET /'],
-    ['JSON для UI', 'GET /v1/dashboard'],
-    ['Проверка жизни', 'GET /healthz'],
-    ['Готовность', 'GET /readyz'],
-    ['Метрики', 'GET /metrics'],
-    ['Сырой статус', 'GET /v1/status'],
-  ];
-
-  const summaryContent = data ? <SummaryCards data={data} /> : null;
-  const errorMessage = localizeError(error);
+  const errorMessage = localizeError(error, t);
 
   return (
     <div className={styles.shell}>
@@ -113,32 +123,35 @@ export default function App() {
           </div>
           <div>
             <div className={styles.brandTitle}>codex-auth-refresher</div>
-            <div className={styles.brandSubtitle}>Панель состояния</div>
+            <div className={styles.brandSubtitle}>{t('app.brandSubtitle')}</div>
           </div>
         </div>
 
         <nav className={styles.nav}>
-          <a href="#overview"><LayoutDashboard size={18} /> Обзор</a>
-          <a href="#files"><Files size={18} /> Файлы</a>
-          <a href="#metrics"><Activity size={18} /> Метрики</a>
-          <a href="#endpoints"><Link2 size={18} /> Эндпоинты</a>
+          <a href="#overview"><LayoutDashboard size={18} /> {t('nav.overview')}</a>
+          <a href="#files"><Files size={18} /> {t('nav.files')}</a>
+          <a href="#metrics"><Activity size={18} /> {t('nav.metrics')}</a>
+          <a href="#endpoints"><Link2 size={18} /> {t('nav.endpoints')}</a>
         </nav>
 
         {data && (
           <div className={styles.stack}>
             <div className={styles.sidebarCard}>
-              <div className={styles.sidebarLabel}>Политика обновления</div>
+              <div className={styles.sidebarLabel}>{t('sidebar.refreshPolicy')}</div>
               <div className={styles.sidebarValue}>
-                {data.config.refresh_before} / {localizeConfigValue(data.config.refresh_max_age)}
+                {data.config.refresh_before} / {localizeConfigValue(data.config.refresh_max_age, t)}
               </div>
               <div className={styles.sidebarHint}>
-                Интервал сканирования {data.config.scan_interval}, параллелизм {data.config.max_parallel}.
+                {t('sidebar.scanPolicy', {
+                  interval: data.config.scan_interval,
+                  parallel: data.config.max_parallel,
+                })}
               </div>
             </div>
             <div className={styles.sidebarCard}>
-              <div className={styles.sidebarLabel}>Состояние сервиса</div>
-              <div className={styles.sidebarValue}><StatusPill state={data.service.ready ? 'ok' : 'degraded'} /></div>
-              <div className={styles.sidebarHint}>Аптайм {formatDuration(data.service.uptime_seconds)}.</div>
+              <div className={styles.sidebarLabel}>{t('sidebar.serviceState')}</div>
+              <div className={styles.sidebarValue}>{data.service.ready ? t('metrics.ready') : t('metrics.starting')}</div>
+              <div className={styles.sidebarHint}>{t('sidebar.serviceUptime', { value: formatDuration(data.service.uptime_seconds, locale) })}</div>
             </div>
           </div>
         )}
@@ -146,40 +159,47 @@ export default function App() {
 
       <main className={styles.content}>
         <div className={styles.topbar}>
-          <div>
-            <div className={styles.title}>Состояние Codex-токенов в одном окне</div>
-            <div className={styles.subtitle}>
-              Панель только для чтения: видно здоровье refresh-цикла, состояние auth-файлов и ближайшие обновления.
-            </div>
+          <div className={styles.hero}>
+            <div className={styles.title}>{t('app.title')}</div>
+            <div className={styles.subtitle}>{t('app.subtitle')}</div>
           </div>
           <div className={styles.topMeta}>
-            <div className={styles.metricPill}>Автообновление каждые {Math.round(pollIntervalMs / 1000)} с</div>
-            {lastUpdatedAt && <div className={styles.metricPill}>Обновлено {lastUpdatedAt.toLocaleTimeString('ru-RU')}</div>}
+            <div className={styles.metricPill}>{t('top.autoRefresh', { seconds: Math.round(pollIntervalMs / 1000) })}</div>
+            {lastUpdatedAt && <div className={styles.metricPill}>{t('top.updatedAt', { time: formatClockTime(lastUpdatedAt, locale) })}</div>}
+            <div className={styles.localeSwitch} role="group" aria-label={t('top.languageSwitcher')}>
+              {SUPPORTED_LOCALES.map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={`${styles.localeButton} ${locale === value ? styles.localeButtonActive : ''}`}
+                  onClick={() => setLocale(value)}
+                  aria-pressed={locale === value}
+                >
+                  {value.toUpperCase()}
+                </button>
+              ))}
+            </div>
             <button type="button" className={styles.refreshButton} onClick={() => void refresh()} disabled={loading}>
-              <RefreshCw size={18} /> Обновить
+              <RefreshCw size={18} /> {t('top.refresh')}
             </button>
           </div>
         </div>
 
         {!data && loading && (
           <StatusBanner
-            title="Загрузка дашборда"
-            message="Получаю текущее состояние refresh-цикла, список файлов и операционные метрики."
+            title={t('banner.loadingTitle')}
+            message={t('banner.loadingMessage')}
           />
         )}
 
         {data && !data.service.ready && (
-          <StatusBanner title="Сервис запускается" message="Планировщик ещё прогревается. Пока readiness не станет зелёным, данные могут быть неполными." />
+          <StatusBanner title={t('banner.startingTitle')} message={t('banner.startingMessage')} />
         )}
 
         {errorMessage && (
           <StatusBanner
-            title={isStale ? 'Показываю последние успешные данные' : 'Не удалось обновить дашборд'}
-            message={
-              isStale
-                ? `Последний запрос к API завершился ошибкой (${errorMessage}), но на экране остаётся предыдущий успешный снимок.`
-                : `Запрос к dashboard API завершился ошибкой: ${errorMessage}.`
-            }
+            title={isStale ? t('banner.staleTitle') : t('banner.fetchFailedTitle')}
+            message={isStale ? t('banner.staleMessage', { error: errorMessage }) : t('banner.fetchFailedMessage', { error: errorMessage })}
             variant="warning"
           />
         )}
@@ -187,12 +207,12 @@ export default function App() {
         {data && (
           <>
             <section id="overview" className={styles.section}>
-              <div className={styles.sectionTitle}>Обзор</div>
-              {summaryContent}
+              <div className={styles.sectionTitle}>{t('section.overview')}</div>
+              <SummaryCards data={data} />
             </section>
 
             <section id="files" className={styles.section}>
-              <div className={styles.sectionTitle}>Файлы</div>
+              <div className={styles.sectionTitle}>{t('section.files')}</div>
               <FiltersBar
                 filter={filter}
                 onFilterChange={setFilter}
@@ -201,44 +221,49 @@ export default function App() {
                 showDisabled={showDisabled}
                 onShowDisabledChange={setShowDisabled}
               />
-              <div style={{ marginTop: '1rem' }}>
+              <div className={styles.tableSection}>
                 <FileTable files={filteredFiles} />
               </div>
             </section>
 
             <section id="metrics" className={styles.section}>
-              <div className={styles.sectionTitle}>Метрики</div>
+              <div className={styles.sectionTitle}>{t('section.metrics')}</div>
               <div className={styles.metricsGrid}>
                 <div className={styles.metricsCard}>
-                  <div className={styles.metricsCardLabel}>Попытки refresh</div>
+                  <div className={styles.metricsCardLabel}>{t('metrics.refreshAttempts')}</div>
                   <div className={styles.metricsCardValue}>{data.metrics.refresh_attempts_total}</div>
-                  <div className={styles.metricsCardHint}>Успешно {data.metrics.refresh_success_total} · Ошибок {data.metrics.refresh_failure_total}</div>
+                  <div className={styles.metricsCardHint}>
+                    {t('metrics.refreshAttemptsHint', {
+                      success: data.metrics.refresh_success_total,
+                      failure: data.metrics.refresh_failure_total,
+                    })}
+                  </div>
                 </div>
                 <div className={styles.metricsCard}>
-                  <div className={styles.metricsCardLabel}>Сканирований</div>
+                  <div className={styles.metricsCardLabel}>{t('metrics.scans')}</div>
                   <div className={styles.metricsCardValue}>{data.metrics.scans_total}</div>
-                  <div className={styles.metricsCardHint}>Последний скан {formatAbsolute(data.metrics.last_scan_at)}</div>
+                  <div className={styles.metricsCardHint}>{t('metrics.scansHint', { time: formatAbsolute(data.metrics.last_scan_at, locale) })}</div>
                 </div>
                 <div className={styles.metricsCard}>
-                  <div className={styles.metricsCardLabel}>Готовность</div>
-                  <div className={styles.metricsCardValue}>{data.service.ready ? 'Готов' : 'Запуск'}</div>
-                  <div className={styles.metricsCardHint}>Старт {formatAbsolute(data.service.started_at)}</div>
+                  <div className={styles.metricsCardLabel}>{t('metrics.readiness')}</div>
+                  <div className={styles.metricsCardValue}>{data.service.ready ? t('metrics.ready') : t('metrics.starting')}</div>
+                  <div className={styles.metricsCardHint}>{t('metrics.startedAt', { time: formatAbsolute(data.service.started_at, locale) })}</div>
                 </div>
                 <div className={styles.metricsCard}>
-                  <div className={styles.metricsCardLabel}>Status API</div>
-                  <div className={styles.metricsCardValue}>{data.config.status_api_enabled ? 'Включён' : 'Выключен'}</div>
-                  <div className={styles.metricsCardHint}>Доступность сырого JSON-статуса</div>
+                  <div className={styles.metricsCardLabel}>{t('metrics.statusApi')}</div>
+                  <div className={styles.metricsCardValue}>{data.config.status_api_enabled ? t('common.enabled') : t('common.disabled')}</div>
+                  <div className={styles.metricsCardHint}>{t('metrics.statusApiHint')}</div>
                 </div>
               </div>
             </section>
 
             <section id="endpoints" className={styles.section}>
-              <div className={styles.sectionTitle}>Эндпоинты</div>
+              <div className={styles.sectionTitle}>{t('section.endpoints')}</div>
               <div className={styles.endpointsCard}>
                 <ul>
-                  {endpointItems.map(([label, value]) => (
-                    <li key={value}>
-                      <strong>{label}:</strong> <code>{value}</code>
+                  {ENDPOINT_ITEMS.map((item) => (
+                    <li key={item.value}>
+                      <strong>{t(item.labelKey)}:</strong> <code>{item.value}</code>
                     </li>
                   ))}
                 </ul>
