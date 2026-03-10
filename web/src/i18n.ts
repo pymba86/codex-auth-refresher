@@ -17,7 +17,7 @@ const ru = {
     "Интервал сканирования {interval}, параллелизм {parallel}.",
   "sidebar.serviceState": "Состояние сервиса",
   "sidebar.serviceUptime": "Аптайм {value}.",
-  "app.title": "Состояние Codex-токенов",
+  "app.title": "Состояние Codex токенов",
   "app.subtitle":
     "Панель состояния: видно здоровье refresh-цикла, состояние auth-файлов и ближайшие обновления.",
   "top.autoRefresh": "Автообновление каждые {seconds} с",
