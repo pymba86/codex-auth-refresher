@@ -202,15 +202,15 @@ func (m *Manager) handleJob(ctx context.Context, job refreshJob) {
 		m.metrics.IncRefreshFailure()
 		record.status.LastError = sanitizeError(err)
 		record.status.ConsecutiveFailures++
+		record.status.State = classifyState(err)
+		record.nextAttemptAt = nextAttemptTime(record.status.ConsecutiveFailures, record.status.State)
 		record.status.Disabled = result.Inspection.Disabled
 		record.status.AccountID = result.Inspection.AccountID
 		record.status.Schema = result.Inspection.Schema
 		record.status.ExpiresAt = cloneTime(result.Inspection.ExpiresAt)
-		record.status.NextRefreshAt = cloneTime(result.Inspection.NextRefreshAt)
+		record.status.NextRefreshAt = cloneTime(&record.nextAttemptAt)
 		record.status.LastRefreshAt = cloneTime(result.Inspection.LastRefreshAt)
 		record.accountKey = result.Inspection.AccountKey
-		record.status.State = classifyState(err)
-		record.nextAttemptAt = nextAttemptTime(record.status.ConsecutiveFailures, record.status.State)
 		m.updateMetricsLocked()
 		state := record.status.State
 		lastError := record.status.LastError
@@ -295,6 +295,8 @@ func (m *Manager) scanOnce(ctx context.Context) error {
 
 		consecutiveFailures := record.status.ConsecutiveFailures
 		lastError := record.status.LastError
+		previousState := record.status.State
+		nextAttemptAt := record.nextAttemptAt
 		record.status = FileStatus{
 			File:                inspection.File,
 			AccountID:           inspection.AccountID,
@@ -308,7 +310,14 @@ func (m *Manager) scanOnce(ctx context.Context) error {
 			Disabled:            inspection.Disabled,
 		}
 		if consecutiveFailures > 0 {
-			record.status.State = refresher.StateDegraded
+			if previousState == refresher.StateReauthRequired {
+				record.status.State = refresher.StateReauthRequired
+			} else {
+				record.status.State = refresher.StateDegraded
+			}
+			if !nextAttemptAt.IsZero() {
+				record.status.NextRefreshAt = cloneTime(&nextAttemptAt)
+			}
 		}
 		record.accountKey = inspection.AccountKey
 		shouldQueue := inspection.RefreshDue && !inspection.Disabled && inspection.RefreshTokenPresent && !record.busy && !m.accountsBusy[record.accountKey] && (record.nextAttemptAt.IsZero() || !record.nextAttemptAt.After(now))

@@ -141,6 +141,7 @@ func TestManagerAppliesBackoffOnTooManyRequests(t *testing.T) {
 		t.Fatalf("scanOnce() error = %v", err)
 	}
 
+	var retryAt time.Time
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		manager.mu.RLock()
@@ -155,11 +156,34 @@ func TestManagerAppliesBackoffOnTooManyRequests(t *testing.T) {
 			if record.status.ConsecutiveFailures != 1 {
 				t.Fatalf("ConsecutiveFailures = %d, want 1", record.status.ConsecutiveFailures)
 			}
-			return
+			if record.status.NextRefreshAt == nil || !record.status.NextRefreshAt.Equal(record.nextAttemptAt) {
+				t.Fatalf("status.NextRefreshAt = %v, want %v", record.status.NextRefreshAt, record.nextAttemptAt)
+			}
+			retryAt = record.nextAttemptAt
+			break
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
-	t.Fatalf("expected degraded record with backoff, got %+v", manager.Snapshot())
+	if retryAt.IsZero() {
+		t.Fatalf("expected degraded record with backoff, got %+v", manager.Snapshot())
+	}
+
+	if err := manager.scanOnce(context.Background()); err != nil {
+		t.Fatalf("scanOnce() second error = %v", err)
+	}
+
+	manager.mu.RLock()
+	record := manager.files[path]
+	manager.mu.RUnlock()
+	if record == nil {
+		t.Fatal("expected tracked file after second scan")
+	}
+	if record.status.State != refresher.StateDegraded {
+		t.Fatalf("state after second scan = %q, want %q", record.status.State, refresher.StateDegraded)
+	}
+	if record.status.NextRefreshAt == nil || !record.status.NextRefreshAt.Equal(retryAt) {
+		t.Fatalf("status.NextRefreshAt after second scan = %v, want %v", record.status.NextRefreshAt, retryAt)
+	}
 }
 
 func TestManagerSerializesSameAccountRefreshes(t *testing.T) {
@@ -212,6 +236,54 @@ func TestManagerSerializesSameAccountRefreshes(t *testing.T) {
 	})
 	if _, _, maxInFlight := blocking.Stats(); maxInFlight != 1 {
 		t.Fatalf("maxInFlight = %d, want 1", maxInFlight)
+	}
+}
+
+func TestManagerPreservesReauthRequiredStatusAcrossScans(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "codex-reauth.json")
+	soon := time.Now().Add(10 * time.Minute).UTC().Format(time.RFC3339)
+	if err := os.WriteFile(path, []byte(`{"access_token":"`+testJWT(time.Now().Add(10*time.Minute), "client-1")+`","refresh_token":"rt-1","expired":"`+soon+`"}`), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	refreshService := refresher.NewService(fakeTokenRefresher{err: &oauth.Error{StatusCode: 400, Code: "invalid_grant", Description: "refresh token expired"}}, 6*time.Hour, 0, "fallback-client")
+	manager := NewManager(dir, time.Hour, 1, refreshService, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go manager.worker(ctx)
+
+	if err := manager.scanOnce(context.Background()); err != nil {
+		t.Fatalf("scanOnce() error = %v", err)
+	}
+
+	var retryAt time.Time
+	waitUntil(t, 2*time.Second, func() bool {
+		manager.mu.RLock()
+		defer manager.mu.RUnlock()
+		record := manager.files[path]
+		if record == nil || record.status.State != refresher.StateReauthRequired || record.nextAttemptAt.IsZero() {
+			return false
+		}
+		retryAt = record.nextAttemptAt
+		return true
+	})
+
+	if err := manager.scanOnce(context.Background()); err != nil {
+		t.Fatalf("scanOnce() second error = %v", err)
+	}
+
+	snapshot := manager.Snapshot()
+	if len(snapshot.Files) != 1 {
+		t.Fatalf("len(snapshot.Files) = %d, want 1", len(snapshot.Files))
+	}
+	if snapshot.Files[0].State != refresher.StateReauthRequired {
+		t.Fatalf("state after second scan = %q, want %q", snapshot.Files[0].State, refresher.StateReauthRequired)
+	}
+	if snapshot.Files[0].NextRefreshAt == nil || !snapshot.Files[0].NextRefreshAt.Equal(retryAt) {
+		t.Fatalf("status.NextRefreshAt after second scan = %v, want %v", snapshot.Files[0].NextRefreshAt, retryAt)
 	}
 }
 
