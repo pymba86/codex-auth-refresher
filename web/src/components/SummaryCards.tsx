@@ -1,6 +1,6 @@
 import type { DashboardResponse } from '../types';
 import { useI18n } from '../i18n';
-import { formatAbsolute, formatDuration } from '../utils/time';
+import { formatAbsolute, formatDuration, formatRelative } from '../utils/time';
 
 import styles from './SummaryCards.module.scss';
 
@@ -47,7 +47,7 @@ export function SummaryCards({ data }: { data: DashboardResponse }) {
     {
       key: 'scan',
       label: t('summary.lastScan'),
-      value: formatAbsolute(data.metrics.last_scan_at, locale),
+      value: formatRelative(data.metrics.last_scan_at, locale),
       helper: t('summary.lastScanHelper', { count: data.metrics.scans_total }),
     },
     {

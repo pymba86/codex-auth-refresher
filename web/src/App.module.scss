@@ -55,6 +55,7 @@
   margin-top: 1.4rem;
   display: grid;
   gap: 0.45rem;
+  min-width: 0;
 }
 
 .nav a {
@@ -66,6 +67,7 @@
   color: #b6c8e2;
   text-decoration: none;
   font-weight: 700;
+  min-width: 0;
 }
 
 .nav a:hover {
@@ -326,12 +328,18 @@
 
   .nav {
     margin-top: 1rem;
+    display: grid;
     gap: 0.55rem;
+    overflow-x: visible;
+    padding-bottom: 0;
   }
 
   .nav a {
+    flex: none;
+    width: 100%;
     padding: 0.78rem 0.9rem;
     border-radius: 14px;
+    white-space: normal;
   }
 
   .sidebarCard {
