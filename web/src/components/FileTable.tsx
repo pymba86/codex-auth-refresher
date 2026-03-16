@@ -14,6 +14,7 @@ type FileColumn = {
 
 const COLUMNS: FileColumn[] = [
   { key: 'file', labelKey: 'files.column.file' },
+  { key: 'provider', labelKey: 'files.column.provider' },
   { key: 'account', labelKey: 'files.column.account' },
   { key: 'schema', labelKey: 'files.column.schema' },
   { key: 'state', labelKey: 'files.column.state' },
@@ -28,6 +29,27 @@ const COLUMNS: FileColumn[] = [
 export function FileTable({ files }: { files: DashboardFile[] }) {
   const { locale, t } = useI18n();
 
+  const renderProvider = (value?: string) => {
+    if (!value) {
+      return <span className={styles.muted}>{t('common.notAvailable')}</span>;
+    }
+    let variant = styles.providerDefault;
+    switch (value) {
+      case 'codex':
+        variant = styles.providerCodex;
+        break;
+      case 'gemini':
+        variant = styles.providerGemini;
+        break;
+      case 'antigravity':
+        variant = styles.providerAntigravity;
+        break;
+      default:
+        break;
+    }
+    return <span className={`${styles.providerBadge} ${variant}`}>{value}</span>;
+  };
+
   const renderTimestamp = (value?: string) => (
     <>
       <div className={styles.primary}>{formatRelative(value, locale)}</div>
@@ -39,6 +61,8 @@ export function FileTable({ files }: { files: DashboardFile[] }) {
     switch (columnKey) {
       case 'file':
         return <div className={`${styles.primary} ${styles.wrapAnywhere}`}>{file.file}</div>;
+      case 'provider':
+        return renderProvider(file.type);
       case 'account':
         return <div className={`${styles.primary} ${styles.wrapAnywhere}`}>{file.account_id ?? t('common.notAvailable')}</div>;
       case 'schema':

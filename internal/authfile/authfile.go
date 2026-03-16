@@ -17,13 +17,20 @@ const (
 	SchemaNested Schema = "nested"
 )
 
+const (
+	ProviderCodex       = "codex"
+	ProviderGemini      = "gemini"
+	ProviderAntigravity = "antigravity"
+)
+
 var ErrUnknownSchema = errors.New("unknown auth file schema")
 
 type Document struct {
-	path   string
-	schema Schema
-	raw    map[string]json.RawMessage
-	tokens map[string]json.RawMessage
+	path         string
+	schema       Schema
+	raw          map[string]json.RawMessage
+	tokens       map[string]json.RawMessage
+	tokenKeyName string
 }
 
 func Load(path string) (*Document, error) {
@@ -40,22 +47,42 @@ func Parse(path string, data []byte) (*Document, error) {
 		return nil, err
 	}
 	doc := &Document{path: filepath.Clean(path), raw: raw}
-	if tokensRaw, ok := raw["tokens"]; ok {
-		var tokens map[string]json.RawMessage
-		if err := json.Unmarshal(tokensRaw, &tokens); err == nil {
-			doc.tokens = tokens
-		}
-	}
+	doc.loadTokenContainer()
 
 	switch {
-	case hasField(raw, "access_token") || hasField(raw, "refresh_token") || hasField(raw, "id_token"):
+	case hasTokenFields(raw):
 		doc.schema = SchemaFlat
-	case len(doc.tokens) > 0 && (hasField(doc.tokens, "access_token") || hasField(doc.tokens, "refresh_token") || hasField(doc.tokens, "id_token")):
+	case hasTokenFields(doc.tokens):
 		doc.schema = SchemaNested
 	default:
 		return nil, ErrUnknownSchema
 	}
+	if doc.schema == SchemaNested && doc.tokenKeyName == "" {
+		doc.tokenKeyName = "tokens"
+	}
 	return doc, nil
+}
+
+func (d *Document) loadTokenContainer() {
+	for _, key := range []string{"tokens", "token"} {
+		rawValue, ok := d.raw[key]
+		if !ok {
+			continue
+		}
+		var parsed map[string]json.RawMessage
+		if err := json.Unmarshal(rawValue, &parsed); err != nil {
+			continue
+		}
+		if d.tokens == nil {
+			d.tokens = parsed
+			d.tokenKeyName = key
+		}
+		if hasTokenFields(parsed) {
+			d.tokens = parsed
+			d.tokenKeyName = key
+			return
+		}
+	}
 }
 
 func (d *Document) SchemaName() string {
@@ -74,11 +101,18 @@ func (d *Document) Type() string {
 	return normalizeType(d.stringField(d.raw, "type"))
 }
 
-func (d *Document) IsCodexAuth() bool {
-	if !hasField(d.raw, "type") {
-		return true
+func (d *Document) Provider() string {
+	if provider := d.Type(); provider != "" {
+		return provider
 	}
-	return d.Type() == "codex"
+	if provider := ProviderFromFilename(d.path); provider != "" {
+		return provider
+	}
+	return ProviderCodex
+}
+
+func (d *Document) IsSupportedAuth() bool {
+	return IsSupportedProvider(d.Provider())
 }
 
 func (d *Document) AccountID() string {
@@ -110,12 +144,44 @@ func (d *Document) IDToken() string {
 	return d.stringField(d.tokens, "id_token")
 }
 
+func (d *Document) ClientID() string {
+	if d.schema == SchemaNested {
+		if value := d.stringField(d.tokens, "client_id"); value != "" {
+			return value
+		}
+	}
+	return d.stringField(d.raw, "client_id")
+}
+
+func (d *Document) ClientSecret() string {
+	if d.schema == SchemaNested {
+		if value := d.stringField(d.tokens, "client_secret"); value != "" {
+			return value
+		}
+	}
+	return d.stringField(d.raw, "client_secret")
+}
+
+func (d *Document) TokenURI() string {
+	if d.schema == SchemaNested {
+		if value := d.stringField(d.tokens, "token_uri"); value != "" {
+			return value
+		}
+	}
+	return d.stringField(d.raw, "token_uri")
+}
+
 func (d *Document) ExplicitExpiry() (time.Time, bool) {
 	for _, field := range []string{"expired", "expires_at"} {
 		if value := d.stringField(d.raw, field); value != "" {
-			if parsed, err := time.Parse(time.RFC3339, value); err == nil {
+			if parsed, ok := parseTimestamp(value); ok {
 				return parsed.UTC(), true
 			}
+		}
+	}
+	if value := d.stringField(d.tokens, "expiry"); value != "" {
+		if parsed, ok := parseTimestamp(value); ok {
+			return parsed.UTC(), true
 		}
 	}
 	return time.Time{}, false
@@ -126,8 +192,8 @@ func (d *Document) LastRefresh() (time.Time, bool) {
 	if value == "" {
 		return time.Time{}, false
 	}
-	parsed, err := time.Parse(time.RFC3339, value)
-	if err != nil {
+	parsed, ok := parseTimestamp(value)
+	if !ok {
 		return time.Time{}, false
 	}
 	return parsed.UTC(), true
@@ -148,10 +214,21 @@ func (d *Document) SetTokens(accessToken, refreshToken, idToken string) {
 	d.setString(d.tokens, "id_token", idToken)
 }
 
-func (d *Document) SetTimestamps(lastRefresh, expiresAt time.Time) {
+func (d *Document) SetTimestamps(lastRefresh, expiresAt time.Time, expiresIn int64) {
 	d.setString(d.raw, "last_refresh", lastRefresh.UTC().Format(time.RFC3339))
 	if d.schema == SchemaFlat {
 		d.setString(d.raw, "expired", expiresAt.UTC().Format(time.RFC3339))
+		if expiresIn > 0 || hasField(d.raw, "expires_in") {
+			d.setInt64(d.raw, "expires_in", expiresIn)
+		}
+	} else if d.tokenKeyName == "token" || hasField(d.tokens, "expiry") {
+		d.setString(d.tokens, "expiry", expiresAt.UTC().Format(time.RFC3339Nano))
+		if expiresIn > 0 || hasField(d.tokens, "expires_in") {
+			d.setInt64(d.tokens, "expires_in", expiresIn)
+		}
+	}
+	if hasField(d.raw, "timestamp") {
+		d.setInt64(d.raw, "timestamp", lastRefresh.UTC().UnixMilli())
 	}
 }
 
@@ -161,7 +238,15 @@ func (d *Document) MarshalPreservingUnknownFields() ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("marshal nested tokens: %w", err)
 		}
-		d.raw["tokens"] = encodedTokens
+		if d.tokenKeyName == "" {
+			d.tokenKeyName = "tokens"
+		}
+		d.raw[d.tokenKeyName] = encodedTokens
+		for _, key := range []string{"tokens", "token"} {
+			if key != d.tokenKeyName {
+				delete(d.raw, key)
+			}
+		}
 	}
 	data, err := json.MarshalIndent(d.raw, "", "  ")
 	if err != nil {
@@ -199,16 +284,56 @@ func (d *Document) setString(raw map[string]json.RawMessage, name, value string)
 	raw[name] = encoded
 }
 
+func (d *Document) setInt64(raw map[string]json.RawMessage, name string, value int64) {
+	encoded, _ := json.Marshal(value)
+	raw[name] = encoded
+}
+
 func hasField(raw map[string]json.RawMessage, name string) bool {
 	_, ok := raw[name]
 	return ok
 }
 
-func IsCodexFilename(path string) bool {
+func hasTokenFields(raw map[string]json.RawMessage) bool {
+	return hasField(raw, "access_token") || hasField(raw, "refresh_token") || hasField(raw, "id_token")
+}
+
+func IsTrackedFilename(path string) bool {
+	return ProviderFromFilename(path) != ""
+}
+
+func ProviderFromFilename(path string) string {
 	base := strings.ToLower(filepath.Base(path))
-	return strings.HasPrefix(base, "codex-") && strings.HasSuffix(base, ".json")
+	if !strings.HasSuffix(base, ".json") {
+		return ""
+	}
+	for _, provider := range []string{ProviderCodex, ProviderGemini, ProviderAntigravity} {
+		if strings.HasPrefix(base, provider+"-") {
+			return provider
+		}
+	}
+	return ""
+}
+
+func IsSupportedProvider(value string) bool {
+	switch normalizeType(value) {
+	case ProviderCodex, ProviderGemini, ProviderAntigravity:
+		return true
+	default:
+		return false
+	}
 }
 
 func normalizeType(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func parseTimestamp(value string) (time.Time, bool) {
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
+		parsed, err := time.Parse(layout, value)
+		if err == nil {
+			return parsed, true
+		}
+	}
+	return time.Time{}, false
 }

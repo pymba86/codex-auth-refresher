@@ -23,7 +23,7 @@ type fakeTokenRefresher struct {
 	err      error
 }
 
-func (f fakeTokenRefresher) Refresh(context.Context, string, string) (*oauth.Response, error) {
+func (f fakeTokenRefresher) Refresh(context.Context, oauth.Request) (*oauth.Response, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -40,14 +40,14 @@ type blockingTokenRefresher struct {
 	clientIDsSeen []string
 }
 
-func (b *blockingTokenRefresher) Refresh(_ context.Context, _ string, clientID string) (*oauth.Response, error) {
+func (b *blockingTokenRefresher) Refresh(_ context.Context, request oauth.Request) (*oauth.Response, error) {
 	b.mu.Lock()
 	b.calls++
 	b.inFlight++
 	if b.inFlight > b.maxInFlight {
 		b.maxInFlight = b.inFlight
 	}
-	b.clientIDsSeen = append(b.clientIDsSeen, clientID)
+	b.clientIDsSeen = append(b.clientIDsSeen, request.ClientID)
 	b.mu.Unlock()
 
 	<-b.release
@@ -62,6 +62,25 @@ func (b *blockingTokenRefresher) Stats() (calls int, inFlight int, maxInFlight i
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.calls, b.inFlight, b.maxInFlight
+}
+
+type countingTokenRefresher struct {
+	response *oauth.Response
+	mu       sync.Mutex
+	calls    int
+}
+
+func (c *countingTokenRefresher) Refresh(_ context.Context, _ oauth.Request) (*oauth.Response, error) {
+	c.mu.Lock()
+	c.calls++
+	c.mu.Unlock()
+	return c.response, nil
+}
+
+func (c *countingTokenRefresher) Calls() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.calls
 }
 
 type fakeNotifier struct {
@@ -83,6 +102,16 @@ func (f *fakeNotifier) Snapshots() []alerting.Snapshot {
 	return out
 }
 
+func testProviderConfig() refresher.ProviderConfig {
+	return refresher.ProviderConfig{
+		CodexTokenEndpoint:       "https://auth.openai.com/oauth/token",
+		CodexClientID:            "fallback-client",
+		AntigravityTokenEndpoint: "https://oauth2.googleapis.com/token",
+		AntigravityClientID:      "antigravity-client-id",
+		AntigravityClientSecret:  "antigravity-client-secret",
+	}
+}
+
 func TestManagerRefreshesValidFilesAndKeepsInvalidJSON(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -96,7 +125,7 @@ func TestManagerRefreshesValidFilesAndKeepsInvalidJSON(t *testing.T) {
 		t.Fatalf("WriteFile(invalid) error = %v", err)
 	}
 
-	refreshService := refresher.NewService(fakeTokenRefresher{response: &oauth.Response{AccessToken: testJWT(time.Now().Add(24*time.Hour), "client-1")}}, 6*time.Hour, 0, "fallback-client")
+	refreshService := refresher.NewService(fakeTokenRefresher{response: &oauth.Response{AccessToken: testJWT(time.Now().Add(24*time.Hour), "client-1")}}, 6*time.Hour, 0, testProviderConfig())
 	manager := NewManager(dir, 50*time.Millisecond, 1, refreshService, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	manager.watchFactory = nil
 
@@ -130,7 +159,7 @@ func TestManagerAppliesBackoffOnTooManyRequests(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	refreshService := refresher.NewService(fakeTokenRefresher{err: &oauth.Error{StatusCode: 429, Code: "rate_limited", Description: "too many requests", Retryable: true}}, 6*time.Hour, 0, "fallback-client")
+	refreshService := refresher.NewService(fakeTokenRefresher{err: &oauth.Error{StatusCode: 429, Code: "rate_limited", Description: "too many requests", Retryable: true}}, 6*time.Hour, 0, testProviderConfig())
 	manager := NewManager(dir, time.Hour, 1, refreshService, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -198,7 +227,7 @@ func TestManagerSerializesSameAccountRefreshes(t *testing.T) {
 	}
 
 	blocking := &blockingTokenRefresher{response: &oauth.Response{AccessToken: testJWT(time.Now().Add(24*time.Hour), "client-1")}, release: make(chan struct{})}
-	refreshService := refresher.NewService(blocking, 6*time.Hour, 0, "fallback-client")
+	refreshService := refresher.NewService(blocking, 6*time.Hour, 0, testProviderConfig())
 	manager := NewManager(dir, time.Hour, 2, refreshService, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -248,7 +277,7 @@ func TestManagerPreservesReauthRequiredStatusAcrossScans(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	refreshService := refresher.NewService(fakeTokenRefresher{err: &oauth.Error{StatusCode: 400, Code: "invalid_grant", Description: "refresh token expired"}}, 6*time.Hour, 0, "fallback-client")
+	refreshService := refresher.NewService(fakeTokenRefresher{err: &oauth.Error{StatusCode: 400, Code: "invalid_grant", Description: "refresh token expired"}}, 6*time.Hour, 0, testProviderConfig())
 	manager := NewManager(dir, time.Hour, 1, refreshService, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -287,7 +316,62 @@ func TestManagerPreservesReauthRequiredStatusAcrossScans(t *testing.T) {
 	}
 }
 
-func TestManagerIgnoresNonCodexFiles(t *testing.T) {
+func TestManagerDoesNotImmediatelyRetryFreshShortLivedToken(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC().Truncate(time.Second)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gemini-user.json")
+	soon := now.Add(10 * time.Minute).UTC().Format(time.RFC3339)
+	refreshedExpiry := now.Add(time.Hour)
+	if err := os.WriteFile(path, []byte(`{
+  "type": "gemini",
+  "token": {
+    "access_token":"`+testJWT(now.Add(10*time.Minute), "gemini-client")+`",
+    "refresh_token":"rt-1",
+    "client_id":"gemini-client",
+    "client_secret":"gemini-secret",
+    "token_uri":"https://oauth2.googleapis.com/token",
+    "expiry":"`+soon+`"
+  }
+}`), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	client := &countingTokenRefresher{
+		response: &oauth.Response{AccessToken: testJWT(refreshedExpiry, "gemini-client")},
+	}
+	refreshService := refresher.NewService(client, 6*time.Hour, 0, testProviderConfig())
+	manager := NewManager(dir, time.Hour, 1, refreshService, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	manager.watchFactory = nil
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go manager.worker(ctx)
+
+	if err := manager.scanOnce(context.Background()); err != nil {
+		t.Fatalf("scanOnce() error = %v", err)
+	}
+	waitUntil(t, 2*time.Second, func() bool { return client.Calls() == 1 })
+
+	if err := manager.scanOnce(context.Background()); err != nil {
+		t.Fatalf("scanOnce() second error = %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+
+	if calls := client.Calls(); calls != 1 {
+		t.Fatalf("refresh call count after second scan = %d, want 1", calls)
+	}
+
+	snapshot := manager.Snapshot()
+	if len(snapshot.Files) != 1 {
+		t.Fatalf("len(snapshot.Files) = %d, want 1", len(snapshot.Files))
+	}
+	if snapshot.Files[0].NextRefreshAt == nil || !snapshot.Files[0].NextRefreshAt.Equal(refreshedExpiry) {
+		t.Fatalf("NextRefreshAt = %v, want %v", snapshot.Files[0].NextRefreshAt, refreshedExpiry)
+	}
+}
+
+func TestManagerTracksSupportedPrefixesAndIgnoresUnsupportedTypes(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	soon := time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339)
@@ -318,7 +402,11 @@ func TestManagerIgnoresNonCodexFiles(t *testing.T) {
 		t.Fatalf("WriteFile(codex-foreign) error = %v", err)
 	}
 
-	refreshService := refresher.NewService(fakeTokenRefresher{}, 6*time.Hour, 0, "fallback-client")
+	if err := os.WriteFile(filepath.Join(dir, "antigravity-broken.json"), []byte(`{"access_token":`), 0o600); err != nil {
+		t.Fatalf("WriteFile(antigravity-broken) error = %v", err)
+	}
+
+	refreshService := refresher.NewService(fakeTokenRefresher{}, 6*time.Hour, 0, testProviderConfig())
 	manager := NewManager(dir, time.Hour, 1, refreshService, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	manager.watchFactory = nil
 
@@ -327,11 +415,21 @@ func TestManagerIgnoresNonCodexFiles(t *testing.T) {
 	}
 
 	snapshot := manager.Snapshot()
-	if len(snapshot.Files) != 1 {
-		t.Fatalf("len(snapshot.Files) = %d, want 1; snapshot=%+v", len(snapshot.Files), snapshot)
+	if len(snapshot.Files) != 3 {
+		t.Fatalf("len(snapshot.Files) = %d, want 3; snapshot=%+v", len(snapshot.Files), snapshot)
 	}
-	if got := snapshot.Files[0].File; got != "codex-user.json" {
-		t.Fatalf("snapshot.Files[0].File = %q, want codex-user.json", got)
+	files := map[string]FileStatus{}
+	for _, file := range snapshot.Files {
+		files[file.File] = file
+	}
+	if got := files["codex-user.json"].Type; got != "codex" {
+		t.Fatalf("codex-user type = %q, want codex", got)
+	}
+	if got := files["gemini-broken.json"].State; got != refresher.StateInvalidJSON {
+		t.Fatalf("gemini-broken state = %q, want invalid_json", got)
+	}
+	if got := files["antigravity-broken.json"].State; got != refresher.StateInvalidJSON {
+		t.Fatalf("antigravity-broken state = %q, want invalid_json", got)
 	}
 }
 
@@ -349,7 +447,7 @@ func TestManagerPublishesProblemSnapshotsForAlerts(t *testing.T) {
 		t.Fatalf("WriteFile(invalid) error = %v", err)
 	}
 
-	refreshService := refresher.NewService(fakeTokenRefresher{}, 6*time.Hour, 0, "fallback-client")
+	refreshService := refresher.NewService(fakeTokenRefresher{}, 6*time.Hour, 0, testProviderConfig())
 	manager := NewManager(dir, time.Hour, 1, refreshService, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	notifier := &fakeNotifier{}
 	manager.SetNotifier(notifier)

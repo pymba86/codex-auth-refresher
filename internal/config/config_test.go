@@ -35,6 +35,25 @@ func TestParseReadsWebEnableFromEnvAndFlag(t *testing.T) {
 	}
 }
 
+func TestParseReadsAntigravityEndpointDefaultAndAllowsOverrides(t *testing.T) {
+	t.Parallel()
+	cfg, err := Parse([]string{"--antigravity-client-id=override-client"}, []string{
+		"CODEX_AUTH_DIR=/tmp/auth",
+	})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if cfg.AntigravityTokenEndpoint != "https://oauth2.googleapis.com/token" {
+		t.Fatalf("AntigravityTokenEndpoint = %q, want Google token endpoint", cfg.AntigravityTokenEndpoint)
+	}
+	if cfg.AntigravityClientID != "override-client" {
+		t.Fatalf("AntigravityClientID = %q, want override-client", cfg.AntigravityClientID)
+	}
+	if cfg.AntigravityClientSecret != "" {
+		t.Fatalf("AntigravityClientSecret = %q, want empty by default", cfg.AntigravityClientSecret)
+	}
+}
+
 func TestValidateAllowsDisabledRefreshMaxAge(t *testing.T) {
 	t.Parallel()
 	cfg := Config{

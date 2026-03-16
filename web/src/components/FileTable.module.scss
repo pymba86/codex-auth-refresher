@@ -75,6 +75,42 @@
   color: #f8fbff;
 }
 
+.providerBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.34rem 0.68rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 0.77rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.providerCodex {
+  border-color: rgba(80, 162, 255, 0.26);
+  background: rgba(35, 99, 235, 0.18);
+  color: #bfe2ff;
+}
+
+.providerGemini {
+  border-color: rgba(45, 212, 191, 0.26);
+  background: rgba(13, 148, 136, 0.18);
+  color: #b9fff3;
+}
+
+.providerAntigravity {
+  border-color: rgba(251, 191, 36, 0.28);
+  background: rgba(217, 119, 6, 0.18);
+  color: #ffe2a7;
+}
+
+.providerDefault {
+  border-color: rgba(130, 150, 178, 0.2);
+  background: rgba(130, 150, 178, 0.12);
+  color: #d6e5fb;
+}
+
 .wrapAnywhere {
   overflow-wrap: anywhere;
   word-break: break-word;

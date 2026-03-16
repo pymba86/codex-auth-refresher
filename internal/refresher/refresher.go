@@ -25,17 +25,29 @@ const (
 var (
 	ErrMissingRefreshToken = errors.New("missing refresh token")
 	ErrMissingClientID     = errors.New("missing client id")
-	ErrNonCodexAuth        = errors.New("auth file is not codex")
+	ErrMissingClientSecret = errors.New("missing client secret")
+	ErrMissingTokenURL     = errors.New("missing token endpoint")
+	ErrUnsupportedAuth     = errors.New("auth file is not supported")
+	ErrNonCodexAuth        = ErrUnsupportedAuth
 	ErrUnknownExpiry       = errors.New("unable to determine token expiry")
 )
 
 type TokenRefresher interface {
-	Refresh(ctx context.Context, refreshToken, clientID string) (*oauth.Response, error)
+	Refresh(ctx context.Context, request oauth.Request) (*oauth.Response, error)
+}
+
+type ProviderConfig struct {
+	CodexTokenEndpoint       string
+	CodexClientID            string
+	AntigravityTokenEndpoint string
+	AntigravityClientID      string
+	AntigravityClientSecret  string
 }
 
 type Inspection struct {
 	Path                string
 	File                string
+	Type                string
 	AccountID           string
 	AccountKey          string
 	Schema              string
@@ -54,20 +66,20 @@ type Result struct {
 }
 
 type Service struct {
-	client          TokenRefresher
-	refreshBefore   time.Duration
-	refreshMaxAge   time.Duration
-	defaultClientID string
-	now             func() time.Time
+	client        TokenRefresher
+	refreshBefore time.Duration
+	refreshMaxAge time.Duration
+	config        ProviderConfig
+	now           func() time.Time
 }
 
-func NewService(client TokenRefresher, refreshBefore, refreshMaxAge time.Duration, defaultClientID string) *Service {
+func NewService(client TokenRefresher, refreshBefore, refreshMaxAge time.Duration, config ProviderConfig) *Service {
 	return &Service{
-		client:          client,
-		refreshBefore:   refreshBefore,
-		refreshMaxAge:   refreshMaxAge,
-		defaultClientID: defaultClientID,
-		now:             func() time.Time { return time.Now().UTC() },
+		client:        client,
+		refreshBefore: refreshBefore,
+		refreshMaxAge: refreshMaxAge,
+		config:        config,
+		now:           func() time.Time { return time.Now().UTC() },
 	}
 }
 
@@ -76,8 +88,8 @@ func (s *Service) InspectFile(path string) (Inspection, error) {
 	if err != nil {
 		return Inspection{Path: path, File: path}, err
 	}
-	if !doc.IsCodexAuth() {
-		return Inspection{Path: path, File: path}, ErrNonCodexAuth
+	if !doc.IsSupportedAuth() {
+		return Inspection{Path: path, File: path}, ErrUnsupportedAuth
 	}
 	return s.inspectDocument(doc), nil
 }
@@ -87,8 +99,8 @@ func (s *Service) RefreshFile(ctx context.Context, path string) (Result, error) 
 	if err != nil {
 		return Result{Inspection: Inspection{Path: path, File: path}}, err
 	}
-	if !doc.IsCodexAuth() {
-		return Result{Inspection: Inspection{Path: path, File: path}}, ErrNonCodexAuth
+	if !doc.IsSupportedAuth() {
+		return Result{Inspection: Inspection{Path: path, File: path}}, ErrUnsupportedAuth
 	}
 	inspection := s.inspectDocument(doc)
 	if inspection.Disabled {
@@ -97,11 +109,12 @@ func (s *Service) RefreshFile(ctx context.Context, path string) (Result, error) 
 	if !inspection.RefreshTokenPresent {
 		return Result{Inspection: inspection}, ErrMissingRefreshToken
 	}
-	if inspection.ClientID == "" {
-		return Result{Inspection: inspection}, ErrMissingClientID
+	request, err := s.buildRefreshRequest(doc, inspection)
+	if err != nil {
+		return Result{Inspection: inspection}, err
 	}
 
-	response, err := s.client.Refresh(ctx, doc.RefreshToken(), inspection.ClientID)
+	response, err := s.client.Refresh(ctx, request)
 	if err != nil {
 		return Result{Inspection: inspection}, err
 	}
@@ -124,7 +137,7 @@ func (s *Service) RefreshFile(ctx context.Context, path string) (Result, error) 
 	}
 	lastRefresh := s.now().UTC()
 	doc.SetTokens(accessToken, refreshToken, idToken)
-	doc.SetTimestamps(lastRefresh, expiresAt)
+	doc.SetTimestamps(lastRefresh, expiresAt, expiresInForWrite(response.ExpiresIn, lastRefresh, expiresAt))
 	data, err := doc.MarshalPreservingUnknownFields()
 	if err != nil {
 		return Result{Inspection: inspection}, err
@@ -146,9 +159,11 @@ func (s *Service) RefreshFile(ctx context.Context, path string) (Result, error) 
 
 func (s *Service) inspectDocument(doc *authfile.Document) Inspection {
 	now := s.now().UTC()
+	provider := doc.Provider()
 	inspection := Inspection{
 		Path:                doc.FilePath(),
 		File:                doc.BaseName(),
+		Type:                provider,
 		AccountID:           doc.AccountID(),
 		Schema:              doc.SchemaName(),
 		Disabled:            doc.Disabled(),
@@ -159,11 +174,7 @@ func (s *Service) inspectDocument(doc *authfile.Document) Inspection {
 	} else {
 		inspection.AccountKey = inspection.Path
 	}
-	if clientID, ok, err := jwtutil.ExtractClientID(doc.AccessToken()); err == nil && ok {
-		inspection.ClientID = clientID
-	} else {
-		inspection.ClientID = s.defaultClientID
-	}
+	inspection.ClientID = s.resolveClientID(doc, provider)
 	if lastRefresh, ok := doc.LastRefresh(); ok {
 		inspection.LastRefreshAt = timePointer(lastRefresh)
 	}
@@ -172,6 +183,63 @@ func (s *Service) inspectDocument(doc *authfile.Document) Inspection {
 	}
 	inspection.NextRefreshAt, inspection.RefreshDue = s.computeSchedule(inspection.ExpiresAt, inspection.LastRefreshAt, now)
 	return inspection
+}
+
+func (s *Service) resolveClientID(doc *authfile.Document, provider string) string {
+	switch provider {
+	case authfile.ProviderGemini:
+		if value := doc.ClientID(); value != "" {
+			return value
+		}
+		if clientID, ok, err := jwtutil.ExtractClientID(doc.AccessToken()); err == nil && ok {
+			return clientID
+		}
+		return ""
+	case authfile.ProviderAntigravity:
+		if value := doc.ClientID(); value != "" {
+			return value
+		}
+		return s.config.AntigravityClientID
+	}
+	if clientID, ok, err := jwtutil.ExtractClientID(doc.AccessToken()); err == nil && ok {
+		return clientID
+	}
+	if value := doc.ClientID(); value != "" {
+		return value
+	}
+	return s.config.CodexClientID
+}
+
+func (s *Service) buildRefreshRequest(doc *authfile.Document, inspection Inspection) (oauth.Request, error) {
+	request := oauth.Request{RefreshToken: doc.RefreshToken()}
+	switch inspection.Type {
+	case authfile.ProviderCodex:
+		request.Endpoint = s.config.CodexTokenEndpoint
+		request.ClientID = inspection.ClientID
+	case authfile.ProviderGemini:
+		request.Endpoint = firstNonEmpty(doc.TokenURI(), s.config.AntigravityTokenEndpoint)
+		request.ClientID = firstNonEmpty(doc.ClientID(), inspection.ClientID)
+		request.ClientSecret = doc.ClientSecret()
+		if request.ClientSecret == "" {
+			return oauth.Request{}, ErrMissingClientSecret
+		}
+	case authfile.ProviderAntigravity:
+		request.Endpoint = firstNonEmpty(doc.TokenURI(), s.config.AntigravityTokenEndpoint)
+		request.ClientID = firstNonEmpty(doc.ClientID(), inspection.ClientID)
+		request.ClientSecret = firstNonEmpty(doc.ClientSecret(), s.config.AntigravityClientSecret)
+		if request.ClientSecret == "" {
+			return oauth.Request{}, ErrMissingClientSecret
+		}
+	default:
+		return oauth.Request{}, ErrUnsupportedAuth
+	}
+	if request.Endpoint == "" {
+		return oauth.Request{}, ErrMissingTokenURL
+	}
+	if request.ClientID == "" {
+		return oauth.Request{}, ErrMissingClientID
+	}
+	return request, nil
 }
 
 func resolveDocumentExpiry(doc *authfile.Document) (time.Time, bool) {
@@ -200,6 +268,16 @@ func (s *Service) resolveExpiry(accessToken, idToken string, expiresIn int64) (t
 	return time.Time{}, false, nil
 }
 
+func expiresInForWrite(expiresIn int64, refreshedAt, expiresAt time.Time) int64 {
+	if expiresIn > 0 {
+		return expiresIn
+	}
+	if expiresAt.After(refreshedAt) {
+		return int64(expiresAt.Sub(refreshedAt) / time.Second)
+	}
+	return 0
+}
+
 func (s *Service) computeSchedule(expiresAt, lastRefreshAt *time.Time, now time.Time) (*time.Time, bool) {
 	candidates := make([]time.Time, 0, 2)
 	refreshDue := false
@@ -207,6 +285,15 @@ func (s *Service) computeSchedule(expiresAt, lastRefreshAt *time.Time, now time.
 	if expiresAt != nil {
 		expiry := expiresAt.UTC()
 		nextFromExpiry := expiry.Add(-s.refreshBefore)
+		// Some providers issue tokens whose entire lifetime is shorter than refreshBefore.
+		// Once such a token has just been refreshed, queueing it again immediately only creates
+		// a tight refresh loop. In that case, expiry is the earliest future point we can derive.
+		if lastRefreshAt != nil {
+			refreshedAt := lastRefreshAt.UTC()
+			if expiry.After(refreshedAt) && !nextFromExpiry.After(refreshedAt) {
+				nextFromExpiry = expiry
+			}
+		}
 		candidates = append(candidates, nextFromExpiry)
 		if !expiry.After(now) || !nextFromExpiry.After(now) {
 			refreshDue = true
@@ -242,4 +329,13 @@ func (s *Service) computeSchedule(expiresAt, lastRefreshAt *time.Time, now time.
 func timePointer(value time.Time) *time.Time {
 	copy := value.UTC()
 	return &copy
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }

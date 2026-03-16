@@ -72,7 +72,6 @@ func TestDashboardDisabledReturnsNotFound(t *testing.T) {
 }
 
 func TestDashboardRootReturnsServiceUnavailableWhenAssetMissing(t *testing.T) {
-	t.Parallel()
 	oldLoader := uiIndexLoader
 	uiIndexLoader = func() ([]byte, error) { return nil, errors.New("missing") }
 	defer func() { uiIndexLoader = oldLoader }()
@@ -90,7 +89,6 @@ func TestDashboardRootReturnsServiceUnavailableWhenAssetMissing(t *testing.T) {
 }
 
 func TestDashboardEndpointsWhenEnabled(t *testing.T) {
-	t.Parallel()
 	oldLoader := uiIndexLoader
 	uiIndexLoader = func() ([]byte, error) { return []byte("<!doctype html><html><body>dashboard</body></html>"), nil }
 	defer func() { uiIndexLoader = oldLoader }()
@@ -116,8 +114,8 @@ func TestDashboardEndpointsWhenEnabled(t *testing.T) {
 			StartedAt: startedAt,
 			AuthDir:   "/secret/auth",
 			Files: []scheduler.FileStatus{
-				{File: "b.json", State: "ok", Schema: "flat", ConsecutiveFailures: 0},
-				{File: "a.json", AccountID: "acct-1", State: "reauth_required", LastError: "invalid grant", Disabled: true, ConsecutiveFailures: 3},
+				{File: "b.json", Type: "codex", State: "ok", Schema: "flat", ConsecutiveFailures: 0},
+				{File: "a.json", Type: "antigravity", AccountID: "acct-1", State: "reauth_required", LastError: "invalid grant", Disabled: true, ConsecutiveFailures: 3},
 			},
 		},
 	}, registry, Options{
@@ -176,5 +174,8 @@ func TestDashboardEndpointsWhenEnabled(t *testing.T) {
 	files := payload["files"].([]any)
 	if files[0].(map[string]any)["file"].(string) != "a.json" {
 		t.Fatalf("first file = %v, want a.json sorted by priority", files[0].(map[string]any)["file"])
+	}
+	if files[0].(map[string]any)["type"].(string) != "antigravity" {
+		t.Fatalf("first file type = %v, want antigravity", files[0].(map[string]any)["type"])
 	}
 }

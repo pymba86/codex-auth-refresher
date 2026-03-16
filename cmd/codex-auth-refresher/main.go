@@ -47,7 +47,13 @@ func run() error {
 
 	metricsRegistry := metrics.New()
 	oauthClient := oauth.NewClient(cfg.TokenEndpoint, httpClient)
-	refreshService := refresher.NewService(oauthClient, cfg.RefreshBefore, cfg.RefreshMaxAge, cfg.ClientID)
+	refreshService := refresher.NewService(oauthClient, cfg.RefreshBefore, cfg.RefreshMaxAge, refresher.ProviderConfig{
+		CodexTokenEndpoint:       cfg.TokenEndpoint,
+		CodexClientID:            cfg.ClientID,
+		AntigravityTokenEndpoint: cfg.AntigravityTokenEndpoint,
+		AntigravityClientID:      cfg.AntigravityClientID,
+		AntigravityClientSecret:  cfg.AntigravityClientSecret,
+	})
 	manager := scheduler.NewManager(cfg.AuthDir, cfg.ScanInterval, cfg.MaxParallel, refreshService, metricsRegistry, logger)
 	if cfg.EmailEnable {
 		sender, err := alerting.NewSMTPSender(alerting.SMTPConfig{

@@ -100,7 +100,11 @@ export default function App() {
         if (!normalized) {
           return true;
         }
-        return file.file.toLowerCase().includes(normalized) || (file.account_id ?? '').toLowerCase().includes(normalized);
+        return (
+          file.file.toLowerCase().includes(normalized) ||
+          (file.type ?? '').toLowerCase().includes(normalized) ||
+          (file.account_id ?? '').toLowerCase().includes(normalized)
+        );
       })
       .sort((left, right) => {
         const leftPriority = PRIORITY[left.state] ?? 99;

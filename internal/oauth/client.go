@@ -17,6 +17,13 @@ type Client struct {
 	httpClient *http.Client
 }
 
+type Request struct {
+	Endpoint     string
+	RefreshToken string
+	ClientID     string
+	ClientSecret string
+}
+
 type Response struct {
 	AccessToken      string `json:"access_token"`
 	RefreshToken     string `json:"refresh_token"`
@@ -52,13 +59,21 @@ func NewClient(endpoint string, httpClient *http.Client) *Client {
 	return &Client{endpoint: endpoint, httpClient: httpClient}
 }
 
-func (c *Client) Refresh(ctx context.Context, refreshToken, clientID string) (*Response, error) {
+func (c *Client) Refresh(ctx context.Context, request Request) (*Response, error) {
 	values := url.Values{}
 	values.Set("grant_type", "refresh_token")
-	values.Set("refresh_token", refreshToken)
-	values.Set("client_id", clientID)
+	values.Set("refresh_token", request.RefreshToken)
+	values.Set("client_id", request.ClientID)
+	if request.ClientSecret != "" {
+		values.Set("client_secret", request.ClientSecret)
+	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewBufferString(values.Encode()))
+	endpoint := request.Endpoint
+	if endpoint == "" {
+		endpoint = c.endpoint
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewBufferString(values.Encode()))
 	if err != nil {
 		return nil, err
 	}

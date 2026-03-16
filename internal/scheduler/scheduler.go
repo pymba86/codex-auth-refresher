@@ -23,6 +23,7 @@ import (
 
 type FileStatus struct {
 	File                string              `json:"file"`
+	Type                string              `json:"type,omitempty"`
 	AccountID           string              `json:"account_id,omitempty"`
 	Schema              string              `json:"schema,omitempty"`
 	State               refresher.FileState `json:"state"`
@@ -205,6 +206,7 @@ func (m *Manager) handleJob(ctx context.Context, job refreshJob) {
 		record.status.State = classifyState(err)
 		record.nextAttemptAt = nextAttemptTime(record.status.ConsecutiveFailures, record.status.State)
 		record.status.Disabled = result.Inspection.Disabled
+		record.status.Type = result.Inspection.Type
 		record.status.AccountID = result.Inspection.AccountID
 		record.status.Schema = result.Inspection.Schema
 		record.status.ExpiresAt = cloneTime(result.Inspection.ExpiresAt)
@@ -222,6 +224,7 @@ func (m *Manager) handleJob(ctx context.Context, job refreshJob) {
 
 	record.status = FileStatus{
 		File:                result.Inspection.File,
+		Type:                result.Inspection.Type,
 		AccountID:           result.Inspection.AccountID,
 		Schema:              result.Inspection.Schema,
 		State:               refresher.StateOK,
@@ -258,7 +261,7 @@ func (m *Manager) scanOnce(ctx context.Context) error {
 	now := time.Now().UTC()
 
 	for _, entry := range entries {
-		if entry.IsDir() || !authfile.IsCodexFilename(entry.Name()) {
+		if entry.IsDir() || !authfile.IsTrackedFilename(entry.Name()) {
 			continue
 		}
 		path := filepath.Join(m.authDir, entry.Name())
@@ -268,8 +271,8 @@ func (m *Manager) scanOnce(ctx context.Context) error {
 			continue
 		}
 		inspection, inspectErr := m.refresher.InspectFile(path)
-		if errors.Is(inspectErr, refresher.ErrNonCodexAuth) {
-			m.logger.Debug("ignored non-codex auth file", "file", entry.Name())
+		if errors.Is(inspectErr, refresher.ErrUnsupportedAuth) {
+			m.logger.Debug("ignored unsupported auth file", "file", entry.Name())
 			continue
 		}
 		seen[path] = true
@@ -299,6 +302,7 @@ func (m *Manager) scanOnce(ctx context.Context) error {
 		nextAttemptAt := record.nextAttemptAt
 		record.status = FileStatus{
 			File:                inspection.File,
+			Type:                inspection.Type,
 			AccountID:           inspection.AccountID,
 			Schema:              inspection.Schema,
 			State:               refresher.StateOK,
@@ -416,6 +420,7 @@ func (m *Manager) problemSnapshotLocked() []alerting.Problem {
 func cloneStatus(status FileStatus) FileStatus {
 	return FileStatus{
 		File:                status.File,
+		Type:                status.Type,
 		AccountID:           status.AccountID,
 		Schema:              status.Schema,
 		State:               status.State,

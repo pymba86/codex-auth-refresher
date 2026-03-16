@@ -68,6 +68,7 @@ type DashboardSummary struct {
 
 type DashboardFile struct {
 	File                string     `json:"file"`
+	Type                string     `json:"type,omitempty"`
 	AccountID           string     `json:"account_id,omitempty"`
 	Schema              string     `json:"schema,omitempty"`
 	State               string     `json:"state"`
@@ -162,6 +163,7 @@ func buildDashboardResponse(ready bool, status scheduler.Snapshot, metricSnapsho
 		}
 		files = append(files, DashboardFile{
 			File:                file.File,
+			Type:                file.Type,
 			AccountID:           file.AccountID,
 			Schema:              file.Schema,
 			State:               string(file.State),

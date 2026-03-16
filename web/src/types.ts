@@ -34,6 +34,7 @@ export interface DashboardResponse {
 
 export interface DashboardFile {
   file: string;
+  type?: string;
   account_id?: string;
   schema?: string;
   state: FileState;

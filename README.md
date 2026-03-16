@@ -1,9 +1,12 @@
 # codex-auth-refresher
 
-`codex-auth-refresher` is a Go service that keeps Codex / OpenAI auth JSON files up to date for `cliproxyapi` by refreshing tokens before they expire. It now also ships with an embedded React dashboard at `GET /` for operational visibility.
+`codex-auth-refresher` is a Go service that keeps tracked auth JSON files up to date for `cli-proxy-api` by refreshing tokens before they expire. It now also ships with an embedded React dashboard at `GET /` for operational visibility.
 
 ## What it does
-- reads `auth/*.json` created via `./cliproxyapi --codex-login`
+- reads tracked auth files in `auth/`:
+  - `codex-*.json`
+  - `gemini-*.json`
+  - `antigravity-*.json`
 - supports both flat and nested auth JSON formats
 - derives expiry from JWT `exp` or explicit expiry fields
 - refreshes tokens ahead of expiry using the OAuth refresh flow
@@ -189,6 +192,11 @@ To enable the dashboard in this public-facing compose, add `CODEX_WEB_ENABLE=tru
 ## Running alongside cli-proxy-api
 If your server already runs `cli-proxy-api`, use `docker-compose.cliproxyapi.yml` as the starting point for a shared stack. It mounts the same host `./auth` directory into both containers so the refresher updates the files that `cli-proxy-api` already uses.
 
+Provider behavior in this sidecar mode:
+- `codex` keeps the existing OpenAI refresh flow.
+- `gemini` reads `client_id`, `client_secret`, and `token_uri` from the auth file itself.
+- `antigravity` needs OAuth client metadata either in the auth file itself or via the Antigravity env vars below.
+
 If `cli-proxy-api` tends to demand a fresh `--codex-login` about every 24 hours even though the auth JSON shows a much longer JWT expiry, enable the max-age mode to force periodic refreshes from the stored `refresh_token`.
 
 Recommended sidecar defaults:
@@ -241,6 +249,9 @@ docker compose -f docker-compose.ghcr.yml up -d
 | `CODEX_HTTP_TIMEOUT` | `--http-timeout` | `15s` | HTTP client timeout |
 | `CODEX_TOKEN_ENDPOINT` | `--token-endpoint` | `https://auth.openai.com/oauth/token` | OAuth token endpoint |
 | `CODEX_CLIENT_ID` | `--client-id` | from JWT | Fallback client id |
+| `CODEX_ANTIGRAVITY_TOKEN_ENDPOINT` | `--antigravity-token-endpoint` | `https://oauth2.googleapis.com/token` | Optional override for Antigravity OAuth token endpoint |
+| `CODEX_ANTIGRAVITY_CLIENT_ID` | `--antigravity-client-id` | — | Optional fallback for Antigravity OAuth client id when the auth file does not contain one |
+| `CODEX_ANTIGRAVITY_CLIENT_SECRET` | `--antigravity-client-secret` | — | Optional fallback for Antigravity OAuth client secret when the auth file does not contain one |
 | `CODEX_CA_FILE` | `--ca-file` | — | Extra CA PEM file |
 | `CODEX_LOG_FORMAT` | `--log-format` | `json` | `json` or `text` |
 | `CODEX_STATUS_ENABLE` | `--status-enable` | `true` | Enable `GET /v1/status` |

@@ -12,21 +12,29 @@ import (
 	"time"
 )
 
+const (
+	defaultCodexTokenEndpoint       = "https://auth.openai.com/oauth/token"
+	defaultAntigravityTokenEndpoint = "https://oauth2.googleapis.com/token"
+)
+
 type Config struct {
-	AuthDir       string
-	ListenAddr    string
-	RefreshBefore time.Duration
-	RefreshMaxAge time.Duration
-	ScanInterval  time.Duration
-	MaxParallel   int
-	HTTPTimeout   time.Duration
-	TokenEndpoint string
-	ClientID      string
-	CAFile        string
-	LogFormat     string
-	StatusEnable  bool
-	WebEnable     bool
-	EmailEnable   bool
+	AuthDir                  string
+	ListenAddr               string
+	RefreshBefore            time.Duration
+	RefreshMaxAge            time.Duration
+	ScanInterval             time.Duration
+	MaxParallel              int
+	HTTPTimeout              time.Duration
+	TokenEndpoint            string
+	ClientID                 string
+	AntigravityTokenEndpoint string
+	AntigravityClientID      string
+	AntigravityClientSecret  string
+	CAFile                   string
+	LogFormat                string
+	StatusEnable             bool
+	WebEnable                bool
+	EmailEnable              bool
 
 	EmailSMTPHost     string
 	EmailSMTPPort     int
@@ -49,28 +57,34 @@ func Parse(args []string, env []string) (Config, error) {
 
 	emailToRaw := envMap["CODEX_EMAIL_TO"]
 	cfg := Config{
-		AuthDir:           envMap["CODEX_AUTH_DIR"],
-		ListenAddr:        getOrDefault(envMap["CODEX_LISTEN_ADDR"], ":8080"),
-		RefreshBefore:     getDuration(envMap["CODEX_REFRESH_BEFORE"], 6*time.Hour),
-		RefreshMaxAge:     getDuration(envMap["CODEX_REFRESH_MAX_AGE"], 0),
-		ScanInterval:      getDuration(envMap["CODEX_SCAN_INTERVAL"], time.Minute),
-		MaxParallel:       getInt(envMap["CODEX_MAX_PARALLEL"], 4),
-		HTTPTimeout:       getDuration(envMap["CODEX_HTTP_TIMEOUT"], 15*time.Second),
-		TokenEndpoint:     getOrDefault(envMap["CODEX_TOKEN_ENDPOINT"], "https://auth.openai.com/oauth/token"),
-		ClientID:          envMap["CODEX_CLIENT_ID"],
-		CAFile:            envMap["CODEX_CA_FILE"],
-		LogFormat:         getOrDefault(envMap["CODEX_LOG_FORMAT"], "json"),
-		StatusEnable:      getBool(envMap["CODEX_STATUS_ENABLE"], true),
-		WebEnable:         getBool(envMap["CODEX_WEB_ENABLE"], false),
-		EmailEnable:       getBool(envMap["CODEX_EMAIL_ENABLE"], false),
-		EmailSMTPHost:     envMap["CODEX_EMAIL_SMTP_HOST"],
-		EmailSMTPPort:     getInt(envMap["CODEX_EMAIL_SMTP_PORT"], 587),
-		EmailSMTPTLSMode:  getOrDefault(envMap["CODEX_EMAIL_SMTP_TLS_MODE"], "starttls"),
-		EmailSMTPUsername: envMap["CODEX_EMAIL_SMTP_USERNAME"],
-		EmailSMTPPassword: envMap["CODEX_EMAIL_SMTP_PASSWORD"],
-		EmailFrom:         envMap["CODEX_EMAIL_FROM"],
-		EmailTo:           splitAndTrimCSV(emailToRaw),
-		EmailTimeout:      getDuration(envMap["CODEX_EMAIL_TIMEOUT"], 15*time.Second),
+		AuthDir:       envMap["CODEX_AUTH_DIR"],
+		ListenAddr:    getOrDefault(envMap["CODEX_LISTEN_ADDR"], ":8080"),
+		RefreshBefore: getDuration(envMap["CODEX_REFRESH_BEFORE"], 6*time.Hour),
+		RefreshMaxAge: getDuration(envMap["CODEX_REFRESH_MAX_AGE"], 0),
+		ScanInterval:  getDuration(envMap["CODEX_SCAN_INTERVAL"], time.Minute),
+		MaxParallel:   getInt(envMap["CODEX_MAX_PARALLEL"], 4),
+		HTTPTimeout:   getDuration(envMap["CODEX_HTTP_TIMEOUT"], 15*time.Second),
+		TokenEndpoint: getOrDefault(envMap["CODEX_TOKEN_ENDPOINT"], defaultCodexTokenEndpoint),
+		ClientID:      envMap["CODEX_CLIENT_ID"],
+		AntigravityTokenEndpoint: getOrDefault(
+			envMap["CODEX_ANTIGRAVITY_TOKEN_ENDPOINT"],
+			defaultAntigravityTokenEndpoint,
+		),
+		AntigravityClientID:     envMap["CODEX_ANTIGRAVITY_CLIENT_ID"],
+		AntigravityClientSecret: envMap["CODEX_ANTIGRAVITY_CLIENT_SECRET"],
+		CAFile:                  envMap["CODEX_CA_FILE"],
+		LogFormat:               getOrDefault(envMap["CODEX_LOG_FORMAT"], "json"),
+		StatusEnable:            getBool(envMap["CODEX_STATUS_ENABLE"], true),
+		WebEnable:               getBool(envMap["CODEX_WEB_ENABLE"], false),
+		EmailEnable:             getBool(envMap["CODEX_EMAIL_ENABLE"], false),
+		EmailSMTPHost:           envMap["CODEX_EMAIL_SMTP_HOST"],
+		EmailSMTPPort:           getInt(envMap["CODEX_EMAIL_SMTP_PORT"], 587),
+		EmailSMTPTLSMode:        getOrDefault(envMap["CODEX_EMAIL_SMTP_TLS_MODE"], "starttls"),
+		EmailSMTPUsername:       envMap["CODEX_EMAIL_SMTP_USERNAME"],
+		EmailSMTPPassword:       envMap["CODEX_EMAIL_SMTP_PASSWORD"],
+		EmailFrom:               envMap["CODEX_EMAIL_FROM"],
+		EmailTo:                 splitAndTrimCSV(emailToRaw),
+		EmailTimeout:            getDuration(envMap["CODEX_EMAIL_TIMEOUT"], 15*time.Second),
 	}
 
 	fs := flag.NewFlagSet("codex-auth-refresher", flag.ContinueOnError)
@@ -84,6 +98,9 @@ func Parse(args []string, env []string) (Config, error) {
 	fs.DurationVar(&cfg.HTTPTimeout, "http-timeout", cfg.HTTPTimeout, "HTTP client timeout")
 	fs.StringVar(&cfg.TokenEndpoint, "token-endpoint", cfg.TokenEndpoint, "OAuth token refresh endpoint")
 	fs.StringVar(&cfg.ClientID, "client-id", cfg.ClientID, "fallback OAuth client id")
+	fs.StringVar(&cfg.AntigravityTokenEndpoint, "antigravity-token-endpoint", cfg.AntigravityTokenEndpoint, "override Antigravity OAuth token endpoint")
+	fs.StringVar(&cfg.AntigravityClientID, "antigravity-client-id", cfg.AntigravityClientID, "override Antigravity OAuth client id")
+	fs.StringVar(&cfg.AntigravityClientSecret, "antigravity-client-secret", cfg.AntigravityClientSecret, "override Antigravity OAuth client secret")
 	fs.StringVar(&cfg.CAFile, "ca-file", cfg.CAFile, "custom CA PEM file")
 	fs.StringVar(&cfg.LogFormat, "log-format", cfg.LogFormat, "log format: json or text")
 	fs.BoolVar(&cfg.StatusEnable, "status-enable", cfg.StatusEnable, "enable GET /v1/status")
