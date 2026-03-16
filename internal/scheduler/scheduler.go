@@ -261,7 +261,12 @@ func (m *Manager) scanOnce(ctx context.Context) error {
 	now := time.Now().UTC()
 
 	for _, entry := range entries {
-		if entry.IsDir() || !authfile.IsTrackedFilename(entry.Name()) {
+		provider := authfile.ProviderFromFilename(entry.Name())
+		if entry.IsDir() || provider == "" {
+			continue
+		}
+		if !m.refresher.ProviderEnabled(provider) {
+			m.logger.Debug("ignored disabled auth file", "file", entry.Name(), "provider", provider)
 			continue
 		}
 		path := filepath.Join(m.authDir, entry.Name())
@@ -271,8 +276,8 @@ func (m *Manager) scanOnce(ctx context.Context) error {
 			continue
 		}
 		inspection, inspectErr := m.refresher.InspectFile(path)
-		if errors.Is(inspectErr, refresher.ErrUnsupportedAuth) {
-			m.logger.Debug("ignored unsupported auth file", "file", entry.Name())
+		if errors.Is(inspectErr, refresher.ErrUnsupportedAuth) || errors.Is(inspectErr, refresher.ErrProviderDisabled) {
+			m.logger.Debug("ignored auth file", "file", entry.Name(), "error", inspectErr)
 			continue
 		}
 		seen[path] = true

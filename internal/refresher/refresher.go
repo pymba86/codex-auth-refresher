@@ -28,6 +28,7 @@ var (
 	ErrMissingClientSecret = errors.New("missing client secret")
 	ErrMissingTokenURL     = errors.New("missing token endpoint")
 	ErrUnsupportedAuth     = errors.New("auth file is not supported")
+	ErrProviderDisabled    = errors.New("auth provider is disabled")
 	ErrNonCodexAuth        = ErrUnsupportedAuth
 	ErrUnknownExpiry       = errors.New("unable to determine token expiry")
 )
@@ -42,6 +43,7 @@ type ProviderConfig struct {
 	AntigravityTokenEndpoint string
 	AntigravityClientID      string
 	AntigravityClientSecret  string
+	EnabledProviders         map[string]bool
 }
 
 type Inspection struct {
@@ -74,6 +76,7 @@ type Service struct {
 }
 
 func NewService(client TokenRefresher, refreshBefore, refreshMaxAge time.Duration, config ProviderConfig) *Service {
+	config.EnabledProviders = normalizeEnabledProviders(config.EnabledProviders)
 	return &Service{
 		client:        client,
 		refreshBefore: refreshBefore,
@@ -91,6 +94,9 @@ func (s *Service) InspectFile(path string) (Inspection, error) {
 	if !doc.IsSupportedAuth() {
 		return Inspection{Path: path, File: path}, ErrUnsupportedAuth
 	}
+	if !s.ProviderEnabled(doc.Provider()) {
+		return Inspection{Path: path, File: path}, ErrProviderDisabled
+	}
 	return s.inspectDocument(doc), nil
 }
 
@@ -101,6 +107,9 @@ func (s *Service) RefreshFile(ctx context.Context, path string) (Result, error) 
 	}
 	if !doc.IsSupportedAuth() {
 		return Result{Inspection: Inspection{Path: path, File: path}}, ErrUnsupportedAuth
+	}
+	if !s.ProviderEnabled(doc.Provider()) {
+		return Result{Inspection: Inspection{Path: path, File: path}}, ErrProviderDisabled
 	}
 	inspection := s.inspectDocument(doc)
 	if inspection.Disabled {
@@ -155,6 +164,15 @@ func (s *Service) RefreshFile(ctx context.Context, path string) (Result, error) 
 	updatedInspection.NextRefreshAt, _ = s.computeSchedule(updatedInspection.ExpiresAt, updatedInspection.LastRefreshAt, lastRefresh)
 	updatedInspection.RefreshDue = false
 	return Result{Inspection: updatedInspection, Refreshed: true}, nil
+}
+
+func (s *Service) ProviderEnabled(provider string) bool {
+	switch provider {
+	case authfile.ProviderCodex, authfile.ProviderGemini, authfile.ProviderAntigravity:
+		return s.config.EnabledProviders[provider]
+	default:
+		return false
+	}
 }
 
 func (s *Service) inspectDocument(doc *authfile.Document) Inspection {
@@ -276,6 +294,21 @@ func expiresInForWrite(expiresIn int64, refreshedAt, expiresAt time.Time) int64 
 		return int64(expiresAt.Sub(refreshedAt) / time.Second)
 	}
 	return 0
+}
+
+func normalizeEnabledProviders(configured map[string]bool) map[string]bool {
+	enabled := map[string]bool{
+		authfile.ProviderCodex:       false,
+		authfile.ProviderGemini:      false,
+		authfile.ProviderAntigravity: false,
+	}
+	for provider, value := range configured {
+		switch provider {
+		case authfile.ProviderCodex, authfile.ProviderGemini, authfile.ProviderAntigravity:
+			enabled[provider] = value
+		}
+	}
+	return enabled
 }
 
 func (s *Service) computeSchedule(expiresAt, lastRefreshAt *time.Time, now time.Time) (*time.Time, bool) {

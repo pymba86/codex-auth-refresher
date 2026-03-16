@@ -53,6 +53,7 @@ func run() error {
 		AntigravityTokenEndpoint: cfg.AntigravityTokenEndpoint,
 		AntigravityClientID:      cfg.AntigravityClientID,
 		AntigravityClientSecret:  cfg.AntigravityClientSecret,
+		EnabledProviders:         cfg.EnabledProviders(),
 	})
 	manager := scheduler.NewManager(cfg.AuthDir, cfg.ScanInterval, cfg.MaxParallel, refreshService, metricsRegistry, logger)
 	if cfg.EmailEnable {

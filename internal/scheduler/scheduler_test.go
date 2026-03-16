@@ -109,6 +109,11 @@ func testProviderConfig() refresher.ProviderConfig {
 		AntigravityTokenEndpoint: "https://oauth2.googleapis.com/token",
 		AntigravityClientID:      "antigravity-client-id",
 		AntigravityClientSecret:  "antigravity-client-secret",
+		EnabledProviders: map[string]bool{
+			"codex":       true,
+			"gemini":      true,
+			"antigravity": true,
+		},
 	}
 }
 
@@ -212,6 +217,45 @@ func TestManagerAppliesBackoffOnTooManyRequests(t *testing.T) {
 	}
 	if record.status.NextRefreshAt == nil || !record.status.NextRefreshAt.Equal(retryAt) {
 		t.Fatalf("status.NextRefreshAt after second scan = %v, want %v", record.status.NextRefreshAt, retryAt)
+	}
+}
+
+func TestManagerIgnoresDisabledProviders(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	codexPath := filepath.Join(dir, "codex-valid.json")
+	antigravityPath := filepath.Join(dir, "antigravity-broken.json")
+	later := time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339)
+	if err := os.WriteFile(codexPath, []byte(`{"access_token":"`+testJWT(time.Now().Add(24*time.Hour), "client-1")+`","refresh_token":"rt-1","expired":"`+later+`"}`), 0o600); err != nil {
+		t.Fatalf("WriteFile(codex) error = %v", err)
+	}
+	if err := os.WriteFile(antigravityPath, []byte(`{"access_token":`), 0o600); err != nil {
+		t.Fatalf("WriteFile(antigravity) error = %v", err)
+	}
+
+	cfg := testProviderConfig()
+	cfg.EnabledProviders = map[string]bool{
+		"codex":       true,
+		"gemini":      true,
+		"antigravity": false,
+	}
+	refreshService := refresher.NewService(fakeTokenRefresher{}, 6*time.Hour, 0, cfg)
+	manager := NewManager(dir, time.Hour, 1, refreshService, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	manager.watchFactory = nil
+
+	if err := manager.scanOnce(context.Background()); err != nil {
+		t.Fatalf("scanOnce() error = %v", err)
+	}
+
+	snapshot := manager.Snapshot()
+	if len(snapshot.Files) != 1 {
+		t.Fatalf("tracked files = %d, want 1: %+v", len(snapshot.Files), snapshot.Files)
+	}
+	if snapshot.Files[0].File != "codex-valid.json" {
+		t.Fatalf("tracked file = %q, want codex-valid.json", snapshot.Files[0].File)
+	}
+	if snapshot.Files[0].State != refresher.StateOK {
+		t.Fatalf("tracked state = %q, want ok", snapshot.Files[0].State)
 	}
 }
 

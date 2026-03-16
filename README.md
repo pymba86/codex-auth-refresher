@@ -37,7 +37,7 @@ go test ./...
 Run the backend locally against your auth directory:
 
 ```bash
-go run ./cmd/codex-auth-refresher --auth-dir ./auth
+go run ./cmd/codex-auth-refresher --auth-dir ./auth --auth-enable-codex=true
 ```
 
 ### React dashboard development
@@ -111,6 +111,7 @@ docker run --rm \
   -p 8080:8080 \
   -v "$(pwd)/auth:/data/auth" \
   -e CODEX_AUTH_DIR=/data/auth \
+  -e CODEX_AUTH_ENABLE_CODEX=true \
   -e CODEX_WEB_ENABLE=true \
   codex-auth-refresher
 ```
@@ -196,6 +197,7 @@ Provider behavior in this sidecar mode:
 - `codex` keeps the existing OpenAI refresh flow.
 - `gemini` reads `client_id`, `client_secret`, and `token_uri` from the auth file itself.
 - `antigravity` needs OAuth client metadata either in the auth file itself or via the Antigravity env vars below.
+- All auth providers are disabled by default. Enable only the ones you need with `CODEX_AUTH_ENABLE_CODEX`, `CODEX_AUTH_ENABLE_GEMINI`, or `CODEX_AUTH_ENABLE_ANTIGRAVITY`.
 
 If `cli-proxy-api` tends to demand a fresh `--codex-login` about every 24 hours even though the auth JSON shows a much longer JWT expiry, enable the max-age mode to force periodic refreshes from the stored `refresh_token`.
 
@@ -208,6 +210,7 @@ Recommended sidecar defaults:
 - `CODEX_LOG_FORMAT=json` keeps logs ready for Docker and log shippers.
 - `CODEX_STATUS_ENABLE=true` keeps `/v1/status` available for local diagnostics.
 - `CODEX_WEB_ENABLE=true` enables the embedded dashboard at `GET /`.
+- `CODEX_AUTH_ENABLE_CODEX=true` enables the shared `codex-*.json` refresh flow in this sidecar example.
 
 Open the local-only sidecar dashboard at:
 
@@ -252,6 +255,9 @@ docker compose -f docker-compose.ghcr.yml up -d
 | `CODEX_ANTIGRAVITY_TOKEN_ENDPOINT` | `--antigravity-token-endpoint` | `https://oauth2.googleapis.com/token` | Optional override for Antigravity OAuth token endpoint |
 | `CODEX_ANTIGRAVITY_CLIENT_ID` | `--antigravity-client-id` | — | Optional fallback for Antigravity OAuth client id when the auth file does not contain one |
 | `CODEX_ANTIGRAVITY_CLIENT_SECRET` | `--antigravity-client-secret` | — | Optional fallback for Antigravity OAuth client secret when the auth file does not contain one |
+| `CODEX_AUTH_ENABLE_CODEX` | `--auth-enable-codex` | `false` | Enable tracking and refresh for `codex-*.json` files |
+| `CODEX_AUTH_ENABLE_GEMINI` | `--auth-enable-gemini` | `false` | Enable tracking and refresh for `gemini-*.json` files |
+| `CODEX_AUTH_ENABLE_ANTIGRAVITY` | `--auth-enable-antigravity` | `false` | Enable tracking and refresh for `antigravity-*.json` files |
 | `CODEX_CA_FILE` | `--ca-file` | — | Extra CA PEM file |
 | `CODEX_LOG_FORMAT` | `--log-format` | `json` | `json` or `text` |
 | `CODEX_STATUS_ENABLE` | `--status-enable` | `true` | Enable `GET /v1/status` |

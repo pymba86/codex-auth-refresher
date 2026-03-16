@@ -47,6 +47,11 @@ func testProviderConfig() ProviderConfig {
 		AntigravityTokenEndpoint: "https://oauth2.googleapis.com/token",
 		AntigravityClientID:      "antigravity-client-id",
 		AntigravityClientSecret:  "antigravity-client-secret",
+		EnabledProviders: map[string]bool{
+			"codex":       true,
+			"gemini":      true,
+			"antigravity": true,
+		},
 	}
 }
 
@@ -346,6 +351,34 @@ func TestRefreshFileAntigravityRequiresClientID(t *testing.T) {
 	_, err := service.RefreshFile(context.Background(), path)
 	if !errors.Is(err, ErrMissingClientID) {
 		t.Fatalf("RefreshFile() error = %v, want ErrMissingClientID", err)
+	}
+}
+
+func TestInspectFileRejectsDisabledProvider(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "antigravity-user.json")
+	input := []byte(`{
+  "type": "antigravity",
+  "access_token": "opaque-old",
+  "refresh_token": "rt-old",
+  "expired": "2026-03-16T15:10:21+05:00"
+}`)
+	if err := os.WriteFile(path, input, 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	cfg := testProviderConfig()
+	cfg.EnabledProviders = map[string]bool{
+		"codex":       true,
+		"gemini":      true,
+		"antigravity": false,
+	}
+	service := NewService(&fakeTokenRefresher{}, 6*time.Hour, 0, cfg)
+
+	_, err := service.InspectFile(path)
+	if !errors.Is(err, ErrProviderDisabled) {
+		t.Fatalf("InspectFile() error = %v, want ErrProviderDisabled", err)
 	}
 }
 

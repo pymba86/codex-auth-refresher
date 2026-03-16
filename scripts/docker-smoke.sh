@@ -21,6 +21,7 @@ CID=$(docker run -d \
   -p "$PORT":8080 \
   -v "$AUTH_DIR:/data/auth" \
   -e CODEX_AUTH_DIR=/data/auth \
+  -e CODEX_AUTH_ENABLE_CODEX=true \
   -e CODEX_WEB_ENABLE=true \
   "$IMAGE_NAME")
 

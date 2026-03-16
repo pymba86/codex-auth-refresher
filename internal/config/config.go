@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"codex-auth-refresher/internal/authfile"
 )
 
 const (
@@ -30,6 +32,9 @@ type Config struct {
 	AntigravityTokenEndpoint string
 	AntigravityClientID      string
 	AntigravityClientSecret  string
+	AuthEnableCodex          bool
+	AuthEnableGemini         bool
+	AuthEnableAntigravity    bool
 	CAFile                   string
 	LogFormat                string
 	StatusEnable             bool
@@ -72,6 +77,9 @@ func Parse(args []string, env []string) (Config, error) {
 		),
 		AntigravityClientID:     envMap["CODEX_ANTIGRAVITY_CLIENT_ID"],
 		AntigravityClientSecret: envMap["CODEX_ANTIGRAVITY_CLIENT_SECRET"],
+		AuthEnableCodex:         getBool(envMap["CODEX_AUTH_ENABLE_CODEX"], false),
+		AuthEnableGemini:        getBool(envMap["CODEX_AUTH_ENABLE_GEMINI"], false),
+		AuthEnableAntigravity:   getBool(envMap["CODEX_AUTH_ENABLE_ANTIGRAVITY"], false),
 		CAFile:                  envMap["CODEX_CA_FILE"],
 		LogFormat:               getOrDefault(envMap["CODEX_LOG_FORMAT"], "json"),
 		StatusEnable:            getBool(envMap["CODEX_STATUS_ENABLE"], true),
@@ -101,6 +109,9 @@ func Parse(args []string, env []string) (Config, error) {
 	fs.StringVar(&cfg.AntigravityTokenEndpoint, "antigravity-token-endpoint", cfg.AntigravityTokenEndpoint, "override Antigravity OAuth token endpoint")
 	fs.StringVar(&cfg.AntigravityClientID, "antigravity-client-id", cfg.AntigravityClientID, "override Antigravity OAuth client id")
 	fs.StringVar(&cfg.AntigravityClientSecret, "antigravity-client-secret", cfg.AntigravityClientSecret, "override Antigravity OAuth client secret")
+	fs.BoolVar(&cfg.AuthEnableCodex, "auth-enable-codex", cfg.AuthEnableCodex, "enable codex auth files")
+	fs.BoolVar(&cfg.AuthEnableGemini, "auth-enable-gemini", cfg.AuthEnableGemini, "enable gemini auth files")
+	fs.BoolVar(&cfg.AuthEnableAntigravity, "auth-enable-antigravity", cfg.AuthEnableAntigravity, "enable antigravity auth files")
 	fs.StringVar(&cfg.CAFile, "ca-file", cfg.CAFile, "custom CA PEM file")
 	fs.StringVar(&cfg.LogFormat, "log-format", cfg.LogFormat, "log format: json or text")
 	fs.BoolVar(&cfg.StatusEnable, "status-enable", cfg.StatusEnable, "enable GET /v1/status")
@@ -196,6 +207,14 @@ func (c Config) Validate() error {
 		return errors.New("email-timeout must be positive")
 	}
 	return nil
+}
+
+func (c Config) EnabledProviders() map[string]bool {
+	return map[string]bool{
+		authfile.ProviderCodex:       c.AuthEnableCodex,
+		authfile.ProviderGemini:      c.AuthEnableGemini,
+		authfile.ProviderAntigravity: c.AuthEnableAntigravity,
+	}
 }
 
 func getOrDefault(value, fallback string) string {

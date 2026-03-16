@@ -54,6 +54,63 @@ func TestParseReadsAntigravityEndpointDefaultAndAllowsOverrides(t *testing.T) {
 	}
 }
 
+func TestParseDisablesAuthTypesByDefault(t *testing.T) {
+	t.Parallel()
+	cfg, err := Parse(nil, []string{
+		"CODEX_AUTH_DIR=/tmp/auth",
+	})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if cfg.AuthEnableCodex {
+		t.Fatal("AuthEnableCodex = true, want false by default")
+	}
+	if cfg.AuthEnableGemini {
+		t.Fatal("AuthEnableGemini = true, want false by default")
+	}
+	if cfg.AuthEnableAntigravity {
+		t.Fatal("AuthEnableAntigravity = true, want false by default")
+	}
+	wantProviders := map[string]bool{
+		"codex":       false,
+		"gemini":      false,
+		"antigravity": false,
+	}
+	if got := cfg.EnabledProviders(); !reflect.DeepEqual(got, wantProviders) {
+		t.Fatalf("EnabledProviders() = %#v, want %#v", got, wantProviders)
+	}
+}
+
+func TestParseReadsAuthTypeEnableFlagsFromEnvAndFlag(t *testing.T) {
+	t.Parallel()
+	cfg, err := Parse([]string{"--auth-enable-gemini=true"}, []string{
+		"CODEX_AUTH_DIR=/tmp/auth",
+		"CODEX_AUTH_ENABLE_CODEX=true",
+		"CODEX_AUTH_ENABLE_GEMINI=false",
+		"CODEX_AUTH_ENABLE_ANTIGRAVITY=false",
+	})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if !cfg.AuthEnableCodex {
+		t.Fatal("AuthEnableCodex = false, want true")
+	}
+	if !cfg.AuthEnableGemini {
+		t.Fatal("AuthEnableGemini = false, want true after flag override")
+	}
+	if cfg.AuthEnableAntigravity {
+		t.Fatal("AuthEnableAntigravity = true, want false")
+	}
+	wantProviders := map[string]bool{
+		"codex":       true,
+		"gemini":      true,
+		"antigravity": false,
+	}
+	if got := cfg.EnabledProviders(); !reflect.DeepEqual(got, wantProviders) {
+		t.Fatalf("EnabledProviders() = %#v, want %#v", got, wantProviders)
+	}
+}
+
 func TestValidateAllowsDisabledRefreshMaxAge(t *testing.T) {
 	t.Parallel()
 	cfg := Config{

@@ -6,6 +6,7 @@ services:
     user: "1000:1000"
     environment:
       CODEX_AUTH_DIR: /data/auth
+      CODEX_AUTH_ENABLE_CODEX: "true"
       CODEX_LISTEN_ADDR: :8080
       CODEX_REFRESH_BEFORE: 6h
       CODEX_REFRESH_MAX_AGE: 20h
