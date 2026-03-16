@@ -1,21 +1,8 @@
-x-openai-extra-hosts: &openai_extra_hosts
-  - "chatgpt.com:45.155.204.190"
-  - "ab.chatgpt.com:45.155.204.190"
-  - "auth.openai.com:45.155.204.190"
-  - "auth0.openai.com:45.155.204.190"
-  - "platform.openai.com:45.155.204.190"
-  - "cdn.oaistatic.com:45.155.204.190"
-  - "files.oaiusercontent.com:45.155.204.190"
-  - "cdn.auth0.com:45.155.204.190"
-  - "tcr9i.chat.openai.com:45.155.204.190"
-  - "webrtc.chatgpt.com:45.155.204.190"
-  - "android.chat.openai.com:45.155.204.190"
-  - "api.openai.com:45.155.204.190"
-  - "operator.chatgpt.com:45.155.204.190"
-  - "sora.chatgpt.com:45.155.204.190"
-  - "sora.com:45.155.204.190"
-  - "videos.openai.com:45.155.204.190"
-  - "ios.chat.openai.com:45.155.204.190"
+x-dns: &custom_dns
+  - "84.21.189.133"
+  - "193.23.209.189"
+  - "2a12:bec4:1460:294::2"
+  - "2a01:ecc0:680:120::2"
 
 services:
   cli-proxy-api:
@@ -28,7 +15,7 @@ services:
     volumes:
       - ./config.yaml:/CLIProxyAPI/config.yaml
       - ./auth:/root/.cli-proxy-api
-    extra_hosts: *openai_extra_hosts
+    dns: *custom_dns
 
   codex-auth-refresher:
     image: ghcr.io/pymba86/codex-auth-refresher:latest
@@ -50,7 +37,7 @@ services:
       CODEX_WEB_ENABLE: "true"
     volumes:
       - ./auth:/data/auth
-    extra_hosts: *openai_extra_hosts
+    dns: *custom_dns
 
 networks:
   web:
